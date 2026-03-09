@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    // Target Node.js 18+ with modern JavaScript features
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+
+    // Output compiled files to the dist/ folder
+    "outDir": "./dist",
+    "rootDir": "./src",
+
+    // Generate .d.ts type definition files so consumers get autocomplete
+    "declaration": true,
+    "declarationMap": true,
+
+    // Generate source maps for easier debugging
+    "sourceMap": true,
+
+    // Strict type checking — catches many bugs at compile time
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+
+    // Allow importing JSON files
+    "resolveJsonModule": true,
+
+    // Allow default imports from CommonJS modules
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    // Skip type checking of declaration files (speeds up compilation)
+    "skipLibCheck": true,
+
+    // Consistent file casing across operating systems
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"]
+}
