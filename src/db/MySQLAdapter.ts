@@ -165,6 +165,8 @@ export class MySQLAdapter {
 
     // We exclude views (TABLE_TYPE = 'VIEW') because they may produce
     // unpredictable results when the LLM tries to query them.
+    // We also exclude any nlsql_* tables — these are internal library tables
+    // (like nlsql_enriched_schema) that should never be exposed to the LLM.
     const [tableRows] = await this.pool.query<RowDataPacket[]>(
       `SELECT
          TABLE_NAME    AS tableName,
@@ -173,6 +175,7 @@ export class MySQLAdapter {
        FROM information_schema.TABLES t
        WHERE t.TABLE_SCHEMA = ?
          AND t.TABLE_TYPE   = 'BASE TABLE'
+         AND t.TABLE_NAME   NOT LIKE 'nlsql\_%'
          ${tableFilter}
        ORDER BY t.TABLE_NAME`,
       tableParams

@@ -27,7 +27,7 @@ const testConfig: NLSQLClientConfig = {
   llm: {
     provider: 'gemini',
     apiKey: 'test-gemini-key',
-    model: 'gemini-1.5-flash',
+    model: 'gemini-1.5-flash-latest',
   },
 };
 

@@ -20,6 +20,8 @@
 
 import { MySQLAdapter } from '../db/MySQLAdapter';
 import { GeminiLLM } from '../llm/GeminiLLM';
+import { OpenAILLM } from '../llm/OpenAILLM';
+import { OllamaLLM } from '../llm/OllamaLLM';
 import { BaseLLM } from '../llm/BaseLLM';
 import { EnrichmentStore } from '../storage/EnrichmentStore';
 import { SchemaEnricher } from './SchemaEnricher';
@@ -62,7 +64,7 @@ export interface NLSQLClientConfig {
    * llm: {
    *   provider: 'gemini',
    *   apiKey: process.env.GEMINI_API_KEY!,
-   *   model: 'gemini-1.5-flash',
+   *   model: 'gemini-1.5-flash-latest',
    * }
    */
   llm: LLMConfig;
@@ -87,7 +89,7 @@ export interface NLSQLClientConfig {
  *   llm: {
  *     provider: 'gemini',
  *     apiKey: process.env.GEMINI_API_KEY!,
- *     model: 'gemini-1.5-flash',
+ *     model: 'gemini-1.5-flash-latest',
  *   },
  * });
  *
@@ -234,7 +236,7 @@ export class NLSQLClient {
    * The full pipeline runs on each call:
    *  1. Find the most relevant enriched tables for the question.
    *  2. Build a prompt with schema context and (optional) examples.
-   *  3. Send the prompt to Gemini to generate SQL.
+   *  3. Send the prompt to the configured LLM to generate SQL.
    *  4. Validate the SQL (keyword blocklist + structural check).
    *  5. Execute the validated SQL and return results.
    *
@@ -429,10 +431,14 @@ export class NLSQLClient {
 
   /**
    * Factory method that creates the correct LLM instance based on the provider
-   * specified in the config. Currently only 'gemini' is supported, but this
-   * is where future providers (openai, anthropic, etc.) would be added.
+   * specified in the config.
    *
-   * @param config - LLM configuration.
+   * Supported providers:
+   *  - 'gemini' → GeminiLLM  (Google Gemini API)
+   *  - 'openai' → OpenAILLM  (OpenAI GPT API, or any OpenAI-compatible endpoint)
+   *  - 'ollama' → OllamaLLM  (Local Ollama server, no API key needed)
+   *
+   * @param config - LLM configuration including provider, apiKey, and model.
    * @returns A concrete BaseLLM subclass instance.
    * @throws Error if an unsupported provider is specified.
    */
@@ -440,14 +446,25 @@ export class NLSQLClient {
     switch (config.provider) {
       case 'gemini':
         return new GeminiLLM(config);
-      default:
-        // TypeScript's `never` type ensures this branch is exhaustive —
-        // if you add a new LLMProvider without handling it here, TypeScript
-        // will show a compile error.
+
+      case 'openai':
+        return new OpenAILLM(config);
+
+      case 'ollama':
+        // OllamaConfig extends LLMConfig with an optional baseURL field.
+        // Cast is safe because 'ollama' provider is only used with OllamaConfig.
+        return new OllamaLLM(config);
+
+      default: {
+        // TypeScript exhaustiveness check — if you add a new LLMProvider to
+        // the union type in types/index.ts but forget to handle it here,
+        // TypeScript will give a compile error on the line below.
+        const _exhaustive: never = config.provider;
         throw new Error(
-          `[nlsql] Unsupported LLM provider: "${config.provider}". ` +
-          `Currently supported: "gemini"`
+          `[nlsql] Unsupported LLM provider: "${_exhaustive}". ` +
+          `Supported providers: "gemini", "openai", "ollama"`
         );
+      }
     }
   }
 

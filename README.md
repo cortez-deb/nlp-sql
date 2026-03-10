@@ -30,17 +30,40 @@ npm install nlsql
 ```typescript
 import { NLSQLClient } from 'nlsql';
 
+// ── Option A: Google Gemini ───────────────────────────────────────────────────
 const client = new NLSQLClient({
   db: {
     host: 'localhost',
-    user: 'readonly_user',       // Use a read-only MySQL user!
+    user: 'readonly_user',
     password: process.env.DB_PASSWORD!,
     database: 'my_app',
   },
   llm: {
     provider: 'gemini',
     apiKey: process.env.GEMINI_API_KEY!,
-    model: 'gemini-1.5-flash',   // or 'gemini-1.5-pro', 'gemini-2.0-flash'
+    model: 'gemini-1.5-flash-latest',   // or 'gemini-1.5-pro-latest', 'gemini-2.0-flash'
+  },
+});
+
+// ── Option B: OpenAI ──────────────────────────────────────────────────────────
+const client = new NLSQLClient({
+  db: { host: 'localhost', user: 'readonly_user', password: process.env.DB_PASSWORD!, database: 'my_app' },
+  llm: {
+    provider: 'openai',
+    apiKey: process.env.OPENAI_API_KEY!,
+    model: 'gpt-4o-mini',   // or 'gpt-4o', 'gpt-4-turbo'
+  },
+});
+
+// ── Option C: Ollama (local, no API key needed) ───────────────────────────────
+// First: `ollama pull llama3.1` then `ollama serve`
+const client = new NLSQLClient({
+  db: { host: 'localhost', user: 'readonly_user', password: process.env.DB_PASSWORD!, database: 'my_app' },
+  llm: {
+    provider: 'ollama',
+    apiKey: '',                          // Not needed for local models
+    model: 'llama3.1',                   // or 'mistral', 'codellama', 'deepseek-coder'
+    baseURL: 'http://localhost:11434',   // Optional — this is the default
   },
 });
 
@@ -84,7 +107,7 @@ const client = new NLSQLClient({
   llm: {
     provider: 'gemini';
     apiKey: string;
-    model: string;            // e.g. 'gemini-1.5-flash'
+    model: string;            // e.g. 'gemini-1.5-flash-latest'
     temperature?: number;     // default: 0.1
   },
 });
@@ -226,6 +249,37 @@ npm run test:watch    # Watch mode
 npm run build         # Compile TypeScript to dist/
 npm run lint          # Type-check without emitting
 ```
+
+---
+
+## Checking Ollama status
+
+Before running with Ollama, verify the server is up and your model is available:
+
+```typescript
+import { OllamaLLM } from 'nlsql';
+
+const status = await OllamaLLM.checkServer('http://localhost:11434', 'llama3.1');
+
+if (!status.running) {
+  console.error('Ollama is not running. Start it with: ollama serve');
+} else if (!status.modelAvailable) {
+  console.error(`Model not found. Pull it: ollama pull llama3.1`);
+  console.log('Available models:', status.availableModels);
+} else {
+  console.log('Ready!');
+}
+```
+
+Recommended models for SQL generation:
+
+| Model | Command | Notes |
+|---|---|---|
+| `llama3.1` | `ollama pull llama3.1` | Best all-rounder |
+| `mistral` | `ollama pull mistral` | Good structured output |
+| `codellama` | `ollama pull codellama` | Code/SQL focused |
+| `deepseek-coder` | `ollama pull deepseek-coder` | Strong SQL |
+| `qwen2.5-coder` | `ollama pull qwen2.5-coder` | Alibaba code model |
 
 ---
 

@@ -50,7 +50,7 @@ class TestLLM extends BaseLLM {
 const testConfig: LLMConfig = {
   provider: 'gemini',
   apiKey: 'test-api-key',
-  model: 'gemini-1.5-flash',
+  model: 'gemini-1.5-flash-latest',
 };
 
 function makeEnrichedTable(tableName = 'orders'): EnrichedTable {

@@ -21,8 +21,8 @@
  *   GEMINI_API_KEY - Your Google Gemini API key
  */
 
-import { NLSQLClient } from '../src';
-import type { FewShotExample } from '../src';
+import { NLSQLClient } from '../../src';
+import type { FewShotExample } from '../../src';
 
 async function main() {
   // ── Step 1: Create the client ──────────────────────────────────────────────
@@ -35,21 +35,18 @@ async function main() {
       host: process.env['DB_HOST'] ?? 'localhost',
       port: 3306,
       user: process.env['DB_USER'] ?? 'root',
-      password: process.env['DB_PASSWORD'] ?? '1234',
+      password: process.env['DB_PASSWORD'] ?? '',
       database: process.env['DB_NAME'] ?? 'shop',
       // Use a small connection pool for this example
       connectionLimit: 3,
     },
-    llm: {
-      provider: 'gemini',
-      apiKey: process.env['GEMINI_API_KEY'] ?? '',
-      // Choose your Gemini model:
-      //   'gemini-1.5-flash' → fast and cheap, great for most use cases
-      //   'gemini-1.5-pro'   → higher quality, better for complex schemas
-      model: 'gemini-1.5-flash',
-      // Keep temperature low for consistent, deterministic SQL
-      temperature: 0.1,
-    },
+    llm: 
+    {
+       provider: 'ollama',
+       apiKey: '',
+       model: 'llama3.1', 
+       baseURL: 'http://192.168.1.122:11434'
+      },
   });
 
   try {

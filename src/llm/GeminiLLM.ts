@@ -42,16 +42,25 @@ interface EnrichmentResponse {
 /**
  * GeminiLLM uses Google's Gemini models to power the nlsql library.
  *
- * Supports any Gemini model name passed in via LLMConfig.model, such as:
- *  - 'gemini-1.5-flash'  (fast, cost-effective)
- *  - 'gemini-1.5-pro'    (higher quality)
- *  - 'gemini-2.0-flash'  (latest fast model)
+ * Supports any Gemini model name passed in via LLMConfig.model.
+ *
+ * ⚠️  Model names change over time. Always check the current list with:
+ *     https://ai.google.dev/gemini-api/docs/models/gemini
+ *
+ * Common working model names (as of 2025):
+ *  - 'gemini-1.5-flash-latest'   (fast, cost-effective — recommended default)
+ *  - 'gemini-1.5-pro-latest'     (higher quality, slower)
+ *  - 'gemini-2.0-flash'          (latest generation fast model)
+ *  - 'gemini-2.0-flash-lite'     (lightest/cheapest option)
+ *
+ * If you get a 404 "model not found" error, run this to list available models:
+ *   curl https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY
  *
  * @example
  * const llm = new GeminiLLM({
  *   provider: 'gemini',
  *   apiKey: process.env.GEMINI_API_KEY!,
- *   model: 'gemini-1.5-flash',
+ *   model: 'gemini-1.5-flash-latest',  // see https://ai.google.dev/gemini-api/docs/models
  *   temperature: 0.1,
  * });
  *
@@ -75,13 +84,13 @@ export class GeminiLLM extends BaseLLM {
    * Creates a GeminiLLM instance.
    *
    * @param config - LLM configuration. `config.model` should be a valid
-   *                 Gemini model name (e.g. 'gemini-1.5-flash').
+   *                 Gemini model name (e.g. 'gemini-1.5-flash-latest', 'gemini-2.0-flash').
    *
    * @example
    * const llm = new GeminiLLM({
    *   provider: 'gemini',
    *   apiKey: 'your-api-key',
-   *   model: 'gemini-1.5-flash',
+   *   model: 'gemini-1.5-flash-latest',  // see https://ai.google.dev/gemini-api/docs/models
    * });
    */
   constructor(config: LLMConfig) {

@@ -59,10 +59,12 @@ export interface MySQLConnectionConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Supported LLM providers. Currently only Gemini, but designed to be
- * extended with more providers (e.g. 'openai', 'anthropic') in the future.
+ * Supported LLM providers.
+ *  - 'gemini'  → Google Gemini (requires API key from https://aistudio.google.com)
+ *  - 'openai'  → OpenAI GPT models (requires API key from https://platform.openai.com)
+ *  - 'ollama'  → Local models via Ollama (no API key needed, runs on your machine)
  */
-export type LLMProvider = 'gemini';
+export type LLMProvider = 'gemini' | 'openai' | 'ollama';
 
 /**
  * Configuration for the LLM (AI model) used to understand natural language
@@ -72,15 +74,16 @@ export type LLMProvider = 'gemini';
  * const llmConfig: LLMConfig = {
  *   provider: 'gemini',
  *   apiKey: process.env.GEMINI_API_KEY!,
- *   model: 'gemini-1.5-flash',
+ *   model: 'gemini-1.5-flash-latest',
  * };
  */
 export interface LLMConfig {
-  /** Which AI provider to use. Currently only 'gemini' is supported. */
+  /** Which AI provider to use: 'gemini', 'openai', or 'ollama'. */
   provider: LLMProvider;
 
   /**
    * Your API key for the chosen provider.
+   * Not required for Ollama (local models) — pass an empty string.
    * Best practice: load this from an environment variable, never hardcode it.
    */
   apiKey: string;
@@ -89,11 +92,26 @@ export interface LLMConfig {
    * The specific model name to use.
    *
    * Gemini options:
-   *   - 'gemini-1.5-flash'  → Fast, cost-effective, good for most queries
-   *   - 'gemini-1.5-pro'    → Higher quality, slower, better for complex schemas
-   *   - 'gemini-2.0-flash'  → Latest fast model
+   *   - 'gemini-1.5-flash-latest'  → Fast, cost-effective, good for most queries
+   *   - 'gemini-1.5-pro-latest'   → Higher quality, slower, better for complex schemas
+   *   - 'gemini-2.0-flash'        → Latest generation, or 'gemini-2.0-flash-lite' for cheapest
    */
   model: string;
+
+  /**
+   * Optional: Base URL override for the LLM API endpoint.
+   *
+   * - Ollama: defaults to 'http://localhost:11434'. Change this if Ollama
+   *   is running on a different host or port (e.g. a remote GPU machine).
+   * - OpenAI: use any OpenAI-compatible API
+   *   (e.g. Azure OpenAI, Together AI, Groq).
+   * - Gemini: not used.
+   *
+   * @example
+   * baseURL: 'http://192.168.1.100:11434'  // Ollama on a remote machine
+   * baseURL: 'https://my-proxy.example.com/v1'  // OpenAI-compatible proxy
+   */
+  baseURL?: string;
 
   /**
    * Optional: Controls how "creative" the LLM's responses are.

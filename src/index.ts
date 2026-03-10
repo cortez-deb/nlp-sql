@@ -22,8 +22,12 @@ export type { NLSQLClientConfig } from './core/NLSQLClient';
 // ── Enrichment types ──────────────────────────────────────────────────────────
 export type { EnrichmentSummary, EnrichmentProgress } from './core/SchemaEnricher';
 
-// ── Extension point: implement a new LLM provider ─────────────────────────────
-export { BaseLLM } from './llm/BaseLLM';
+// ── LLM provider classes (use directly or extend to add new providers) ──────────────────────────
+export { BaseLLM }    from './llm/BaseLLM';
+export { GeminiLLM }  from './llm/GeminiLLM';
+export { OpenAILLM }  from './llm/OpenAILLM';
+export { OllamaLLM }  from './llm/OllamaLLM';
+export type { OllamaConfig } from './llm/OllamaLLM';
 
 // ── All shared types and interfaces ───────────────────────────────────────────
 export type {

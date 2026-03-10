@@ -22,31 +22,27 @@
  *   GEMINI_API_KEY - Your Google Gemini API key
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-const __1 = require("..");
+const src_1 = require("../index.js");
 async function main() {
     // ── Step 1: Create the client ──────────────────────────────────────────────
     //
     // Pass your database and LLM credentials here.
     // Best practice: load these from environment variables, never hardcode them.
-    const client = new __1.NLSQLClient({
+    const client = new src_1.NLSQLClient({
         db: {
             host: process.env['DB_HOST'] ?? 'localhost',
             port: 3306,
-            user: process.env['DB_USER'] ?? 'root',
-            password: process.env['DB_PASSWORD'] ?? '1234',
+            user: process.env['DB_USER'] ?? '',
+            password: process.env['DB_PASSWORD'] ?? '',
             database: process.env['DB_NAME'] ?? 'shop',
             // Use a small connection pool for this example
             connectionLimit: 3,
         },
         llm: {
-            provider: 'gemini',
-            apiKey: process.env['GEMINI_API_KEY'] ?? 'AIzaSyDLakXJr-91CCnNXHsecNeq5o3m6cFHI60',
-            // Choose your Gemini model:
-            //   'gemini-1.5-flash' → fast and cheap, great for most use cases
-            //   'gemini-1.5-pro'   → higher quality, better for complex schemas
-            model: 'gemini-2.5-pro',
-            // Keep temperature low for consistent, deterministic SQL
-            temperature: 0.1
+            provider: 'ollama',
+            apiKey: '',
+            model: 'gpt-oss:120b-cloud',
+            baseURL: 'http://192.168.100.122:11434'
         },
     });
     try {
@@ -133,14 +129,14 @@ async function main() {
         //
         // You can see exactly what the LLM knows about your database.
         // Useful for debugging when queries aren't matching the right tables.
-        console.log('\n' + '─'.repeat(60));
-        console.log('Enriched schema overview:');
-        const enrichedTables = await client.getEnrichedSchema();
-        for (const table of enrichedTables) {
-            console.log(`\n  ${table.tableName} → "${table.businessName}"`);
-            console.log(`  Synonyms: ${table.synonyms.join(', ')}`);
-            console.log(`  Columns: ${table.columns.map((c) => c.name).join(', ')}`);
-        }
+        // console.log('\n' + '─'.repeat(60));
+        // console.log('Enriched schema overview:');
+        // const enrichedTables = await client.getEnrichedSchema();
+        // for (const table of enrichedTables) {
+        //     console.log(`\n  ${table.tableName} → "${table.businessName}"`);
+        //     console.log(`  Synonyms: ${table.synonyms.join(', ')}`);
+        //     console.log(`  Columns: ${table.columns.map((c) => c.name).join(', ')}`);
+        // }
         // ── Step 5: Standalone SQL validation (optional) ──────────────────────────
         //
         // You can validate SQL strings without executing them.
