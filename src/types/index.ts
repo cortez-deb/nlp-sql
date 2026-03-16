@@ -120,6 +120,11 @@ export interface LLMConfig {
    * Defaults to 0.1 for predictable SQL output.
    */
   temperature?: number;
+  /**
+   * The database dialect to use for generating SQL.
+   * Defaults to 'mysql'.
+   */
+  databaseDialect?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,6 +372,12 @@ export interface QueryOptions {
    * Defaults to 5.
    */
   maxContextTables?: number;
+  /**
+   * The database dialect to use for generating SQL.
+   * This is passed to the LLM so it can use the correct syntax.
+   * Defaults to 'mysql'.
+   */
+  databaseDialect?: string;
 }
 
 /**

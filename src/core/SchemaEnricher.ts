@@ -254,7 +254,8 @@ export class SchemaEnricher {
     }
 
     // Normalise the query: lowercase, split into individual words,
-    // filter out very short words (a, an, the, is, etc.)
+    // filter out very short words (a, an, the, is, etc.) 
+    //Remove stop words and very short words from the query to focus on meaningful keywords
     const queryWords = userQuery
       .toLowerCase()
       .split(/\W+/)

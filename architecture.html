@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nlsql — Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0b0e14;
+    --surface:   #111520;
+    --border:    #1e2535;
+    --border-hi: #2e3f5c;
+
+    --blue:      #3b82f6;
+    --blue-dim:  #1e3a5f;
+    --cyan:      #06b6d4;
+    --cyan-dim:  #0c3040;
+    --green:     #22c55e;
+    --green-dim: #0d2e1a;
+    --amber:     #f59e0b;
+    --amber-dim: #2d1f05;
+    --purple:    #a855f7;
+    --purple-dim:#2a1045;
+    --red:       #ef4444;
+    --red-dim:   #2d0a0a;
+
+    --text:      #e2e8f0;
+    --text-dim:  #64748b;
+    --text-mid:  #94a3b8;
+
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 48px 32px 64px;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .header h1 {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--cyan);
+    letter-spacing: -0.5px;
+  }
+  .header .version {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .header .tagline {
+    font-size: 13px;
+    color: var(--text-mid);
+    font-weight: 300;
+    margin-left: auto;
+    letter-spacing: 0.3px;
+  }
+
+  /* ── Section labels ── */
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* ── Main layout ── */
+  .diagram {
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    grid-template-rows: auto auto auto auto;
+    gap: 0;
+    max-width: 1280px;
+    margin: 0 auto;
+    position: relative;
+  }
+
+  /* ── Panel base ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Top row: User ── */
+  .row-user {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+  .user-box {
+    background: var(--surface);
+    border: 1px solid var(--border-hi);
+    border-radius: 8px;
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .user-box .label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-mid);
+    font-weight: 500;
+  }
+  .user-call {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--cyan);
+  }
+  .user-call span {
+    color: var(--text-dim);
+  }
+
+  /* ── Connector area (centre column top) ── */
+  .connector-v {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .arrow-v {
+    width: 2px;
+    background: var(--border-hi);
+    flex: 1;
+    position: relative;
+  }
+  .arrow-v::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid var(--border-hi);
+  }
+  .arrow-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+    margin: 4px 0;
+  }
+
+  /* ── Middle section: two columns ── */
+  .col-left  { padding-right: 24px; }
+  .col-right { padding-left: 24px; }
+  .col-centre {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 0 24px;
+  }
+
+  /* ── NLSQLClient panel ── */
+  .client-panel {
+    grid-column: 1 / -1;
+    border: 1px solid var(--blue-dim);
+    background: color-mix(in srgb, var(--surface) 90%, var(--blue) 10%);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 0;
+    position: relative;
+  }
+  .client-panel .panel-title { color: var(--blue); }
+  .client-panel .panel-title .dot { background: var(--blue); }
+
+  .client-methods {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .method-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 5px;
+    border: 1px solid;
+    cursor: default;
+    transition: all 0.15s;
+  }
+  .method-badge:hover { filter: brightness(1.2); }
+  .method-badge.init  { color: var(--amber);  border-color: var(--amber-dim);  background: var(--amber-dim);  }
+  .method-badge.query { color: var(--green);  border-color: var(--green-dim);  background: var(--green-dim);  }
+  .method-badge.enrich{ color: var(--purple); border-color: var(--purple-dim); background: var(--purple-dim); }
+  .method-badge.util  { color: var(--text-dim); border-color: var(--border);   background: transparent; }
+
+  /* ── Three-column lower area ── */
+  .lower-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    gap: 20px;
+    margin-top: 20px;
+    align-items: start;
+  }
+
+  /* ── Enrichment Pipeline (centre, large) ── */
+  .enrichment-panel {
+    border: 1px solid var(--purple-dim);
+    background: color-mix(in srgb, var(--surface) 90%, var(--purple) 10%);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .enrichment-panel .panel-title { color: var(--purple); }
+  .enrichment-panel .panel-title .dot { background: var(--purple); }
+
+  /* Enrichment pipeline steps */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .pipe-step {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 12px;
+    align-items: start;
+    position: relative;
+  }
+  .pipe-step + .pipe-step { margin-top: 0; }
+
+  .step-gutter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .step-num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .step-line {
+    width: 2px;
+    flex: 1;
+    min-height: 24px;
+  }
+
+  .step-body {
+    padding-bottom: 20px;
+  }
+  .step-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .step-desc {
+    font-size: 12px;
+    color: var(--text-mid);
+    line-height: 1.55;
+  }
+  .step-detail {
+    margin-top: 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 5px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .step-detail .hi { color: var(--text-mid); }
+
+  /* Step colour themes */
+  .s1 .step-num { background: var(--cyan-dim);   color: var(--cyan);   border: 1px solid var(--cyan); }
+  .s1 .step-line { background: linear-gradient(to bottom, var(--cyan), var(--purple)); }
+  .s1 .step-name { color: var(--cyan); }
+
+  .s2 .step-num { background: var(--amber-dim);  color: var(--amber);  border: 1px solid var(--amber); }
+  .s2 .step-line { background: linear-gradient(to bottom, var(--amber), var(--purple)); }
+  .s2 .step-name { color: var(--amber); }
+
+  .s3 .step-num { background: var(--purple-dim); color: var(--purple); border: 1px solid var(--purple); }
+  .s3 .step-line { background: linear-gradient(to bottom, var(--purple), var(--green)); }
+  .s3 .step-name { color: var(--purple); }
+
+  .s4 .step-num { background: var(--green-dim);  color: var(--green);  border: 1px solid var(--green); }
+  .s4 .step-line { background: var(--green-dim); }
+  .s4 .step-name { color: var(--green); }
+
+  .s5 .step-num { background: var(--blue-dim);   color: var(--blue);   border: 1px solid var(--blue); }
+  .s5 .step-name { color: var(--blue); }
+
+  /* ── Query Pipeline (bottom strip) ── */
+  .query-pipeline-section {
+    grid-column: 1 / -1;
+    margin-top: 24px;
+  }
+  .query-pipeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .qstep {
+    padding: 18px 20px;
+    border-right: 1px solid var(--border);
+    position: relative;
+  }
+  .qstep:last-child { border-right: none; }
+  .qstep::after {
+    content: '→';
+    position: absolute;
+    right: -11px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--border-hi);
+    z-index: 1;
+    background: var(--bg);
+    padding: 2px 0;
+  }
+  .qstep:last-child::after { display: none; }
+
+  .qstep-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  .qstep-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .qstep-desc {
+    font-size: 11px;
+    color: var(--text-mid);
+    line-height: 1.5;
+  }
+  .qstep-detail {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .qstep-detail .hi { color: var(--text-mid); }
+
+  .qs1 { background: color-mix(in srgb, var(--surface) 85%, var(--purple) 15%); }
+  .qs1 .qstep-num { color: var(--purple); }
+  .qs1 .qstep-name { color: var(--purple); }
+
+  .qs2 { background: color-mix(in srgb, var(--surface) 85%, var(--blue) 15%); }
+  .qs2 .qstep-num { color: var(--blue); }
+  .qs2 .qstep-name { color: var(--blue); }
+
+  .qs3 { background: color-mix(in srgb, var(--surface) 85%, var(--amber) 15%); }
+  .qs3 .qstep-num { color: var(--amber); }
+  .qs3 .qstep-name { color: var(--amber); }
+
+  .qs4 { background: color-mix(in srgb, var(--surface) 85%, var(--green) 15%); }
+  .qs4 .qstep-num { color: var(--green); }
+  .qs4 .qstep-name { color: var(--green); }
+
+  /* ── Left column: LLM Providers ── */
+  .provider-panel {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .provider-header {
+    background: color-mix(in srgb, var(--surface) 85%, var(--blue) 15%);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+  }
+  .provider-header .panel-title { margin-bottom: 0; color: var(--blue); }
+  .provider-header .panel-title .dot { background: var(--blue); }
+
+  .provider-item {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .provider-item:last-child { border-bottom: none; }
+  .provider-item:hover { background: color-mix(in srgb, var(--surface) 90%, var(--blue) 10%); }
+
+  .provider-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 3px;
+  }
+  .provider-models {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .provider-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-top: 6px;
+  }
+  .badge-remote { background: var(--blue-dim);   color: var(--blue);   border: 1px solid var(--blue-dim); }
+  .badge-local  { background: var(--green-dim);  color: var(--green);  border: 1px solid var(--green-dim); }
+  .badge-compat { background: var(--amber-dim);  color: var(--amber);  border: 1px solid var(--amber-dim); }
+
+  /* ── Right column: Storage ── */
+  .storage-panel {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .storage-header {
+    background: color-mix(in srgb, var(--surface) 85%, var(--cyan) 15%);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+  }
+  .storage-header .panel-title { margin-bottom: 0; color: var(--cyan); }
+  .storage-header .panel-title .dot { background: var(--cyan); }
+
+  .storage-body {
+    background: var(--surface);
+    padding: 16px;
+  }
+
+  .table-schema {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .table-schema-header {
+    background: var(--cyan-dim);
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--cyan);
+    letter-spacing: 0.5px;
+  }
+  .schema-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    padding: 5px 12px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 10px;
+    gap: 8px;
+  }
+  .schema-col { color: var(--text-mid); }
+  .schema-type { color: var(--text-dim); }
+  .schema-row.pk .schema-col { color: var(--amber); }
+  .schema-row.pk .schema-type::before { content: '🔑 '; }
+
+  .storage-note {
+    font-size: 11px;
+    color: var(--text-mid);
+    line-height: 1.6;
+    margin-bottom: 10px;
+  }
+  .storage-note strong { color: var(--cyan); font-weight: 500; }
+
+  .hash-badge {
+    background: var(--cyan-dim);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+  .hash-badge .hi { color: var(--cyan); }
+
+  /* ── Connector arrows between sections ── */
+  .gap-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    gap: 20px;
+    padding: 6px 0;
+  }
+  .gap-centre {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 0;
+  }
+  .gap-left, .gap-right {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mini-arrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mini-arrow .line {
+    width: 2px;
+    height: 24px;
+    background: var(--border-hi);
+  }
+  .mini-arrow .arrowhead {
+    font-size: 12px;
+    color: var(--border-hi);
+  }
+
+  /* ── Two-phase legend ── */
+  .legend {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 32px;
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .legend-phase {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .legend-stripe {
+    width: 32px;
+    height: 4px;
+    border-radius: 2px;
+  }
+  .legend-label { font-size: 12px; color: var(--text-mid); }
+  .legend-label strong { color: var(--text); font-weight: 500; }
+
+  .legend-sep { width: 1px; height: 32px; background: var(--border); }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-mid);
+  }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── Divider label between enrichment and query ── */
+  .phase-divider {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 20px 0 4px;
+  }
+  .phase-divider .phase-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .phase-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 4px 14px;
+    border-radius: 20px;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .phase-tag.enrich-tag { color: var(--purple); border-color: var(--purple-dim); background: var(--purple-dim); }
+  .phase-tag.query-tag  { color: var(--green);  border-color: var(--green-dim);  background: var(--green-dim);  }
+
+  /* Animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .diagram > * {
+    animation: fadeUp 0.4s ease both;
+  }
+  .diagram > *:nth-child(1) { animation-delay: 0.05s; }
+  .diagram > *:nth-child(2) { animation-delay: 0.10s; }
+  .diagram > *:nth-child(3) { animation-delay: 0.15s; }
+  .diagram > *:nth-child(4) { animation-delay: 0.20s; }
+  .diagram > *:nth-child(5) { animation-delay: 0.25s; }
+  .diagram > *:nth-child(6) { animation-delay: 0.30s; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<div class="header">
+  <h1>nlsql</h1>
+  <span class="version">v1.0.0</span>
+  <span class="tagline">Natural Language → MySQL · Architecture</span>
+</div>
+
+<div class="diagram">
+
+  <!-- ── NLSQLClient ────────────────────────────────────────────────────── -->
+  <div class="client-panel">
+    <div class="panel-title">
+      <span class="dot"></span>
+      NLSQLClient &nbsp;·&nbsp; <span style="color:var(--text-dim);font-weight:400">src/core/NLSQLClient.ts</span>
+    </div>
+    <div class="client-methods">
+      <span class="method-badge init">initialise()</span>
+      <span class="method-badge enrich">enrich()</span>
+      <span class="method-badge query">query(question)</span>
+      <span class="method-badge util">validateSQL()</span>
+      <span class="method-badge util">getEnrichedSchema()</span>
+      <span class="method-badge util">close()</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-dim); font-family:var(--mono); line-height:1.8">
+      Owns &nbsp;<span style="color:var(--cyan)">MySQLAdapter</span>&nbsp;·&nbsp;
+      <span style="color:var(--purple)">SchemaEnricher</span>&nbsp;·&nbsp;
+      <span style="color:var(--blue)">BaseLLM</span>&nbsp;·&nbsp;
+      <span style="color:var(--amber)">EnrichmentStore</span>&nbsp;·&nbsp;
+      <span style="color:var(--red)">SQLValidator</span>
+    </div>
+  </div>
+
+  <!-- ── Phase divider: ENRICHMENT ─────────────────────────────────────── -->
+  <div class="phase-divider">
+    <div class="phase-line"></div>
+    <span class="phase-tag enrich-tag">① Enrichment Phase &nbsp;·&nbsp; run once, cached</span>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- ── Lower three-column grid ───────────────────────────────────────── -->
+  <div class="lower-grid">
+
+    <!-- LEFT: LLM Providers -->
+    <div class="provider-panel">
+      <div class="provider-header">
+        <div class="panel-title" style="font-size:10px">
+          <span class="dot"></span>LLM Providers &nbsp;·&nbsp; <span style="color:var(--text-dim);font-weight:400">src/llm/</span>
+        </div>
+      </div>
+      <div class="provider-item">
+        <div class="provider-name" style="color:var(--blue)">GeminiLLM</div>
+        <div class="provider-models">
+          gemini-1.5-flash-latest<br>
+          gemini-1.5-pro-latest<br>
+          gemini-2.0-flash
+        </div>
+        <span class="provider-badge badge-remote">Remote API</span>
+      </div>
+      <div class="provider-item">
+        <div class="provider-name" style="color:var(--blue)">OpenAILLM</div>
+        <div class="provider-models">
+          gpt-4o-mini · gpt-4o<br>
+          gpt-4-turbo · gpt-3.5-turbo<br>
+          + any compatible endpoint
+        </div>
+        <span class="provider-badge badge-remote">Remote API</span>
+        <span class="provider-badge badge-compat" style="margin-left:4px">Custom baseURL</span>
+      </div>
+      <div class="provider-item">
+        <div class="provider-name" style="color:var(--blue)">OllamaLLM</div>
+        <div class="provider-models">
+          llama3.1 · mistral<br>
+          codellama · deepseek-coder<br>
+          qwen2.5-coder · phi3
+        </div>
+        <span class="provider-badge badge-local">Local · No API Key</span>
+      </div>
+      <div class="provider-item" style="background:color-mix(in srgb, var(--surface) 90%, var(--text-dim) 10%)">
+        <div class="provider-name" style="color:var(--text-dim)">BaseLLM (abstract)</div>
+        <div class="provider-models" style="margin-top:4px; color:var(--text-dim)">
+          enrichTable() · generateSQL()<br>
+          buildSchemaContext()<br>
+          extractSQL() · extractJSON()
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTRE: Enrichment Pipeline -->
+    <div class="enrichment-panel">
+      <div class="panel-title">
+        <span class="dot"></span>
+        SchemaEnricher &nbsp;·&nbsp; <span style="color:var(--text-dim);font-weight:400">src/core/SchemaEnricher.ts</span>
+      </div>
+
+      <div class="pipeline">
+
+        <div class="pipe-step s1">
+          <div class="step-gutter">
+            <div class="step-num">1</div>
+            <div class="step-line"></div>
+          </div>
+          <div class="step-body">
+            <div class="step-name">Read Raw Schema</div>
+            <div class="step-desc">MySQLAdapter queries <code style="font-size:11px;color:var(--cyan)">INFORMATION_SCHEMA</code> for all user tables, columns, types, keys, and foreign key relationships. Internal <code style="font-size:11px;color:var(--cyan)">nlsql_*</code> tables are excluded.</div>
+            <div class="step-detail">
+              <span class="hi">MySQLAdapter.getSchema(tables?)</span><br>
+              → TABLE_NAME, COLUMN_NAME, DATA_TYPE,<br>
+              &nbsp;&nbsp; IS_NULLABLE, COLUMN_KEY, EXTRA, COLUMN_COMMENT<br>
+              → ForeignKey references from KEY_COLUMN_USAGE
+            </div>
+          </div>
+        </div>
+
+        <div class="pipe-step s2">
+          <div class="step-gutter">
+            <div class="step-num">2</div>
+            <div class="step-line"></div>
+          </div>
+          <div class="step-body">
+            <div class="step-name">Sample Column Values</div>
+            <div class="step-desc">For each column, fetch up to N distinct sample values from the live database. Samples ground the LLM prompt — enum values, ID formats, and date ranges dramatically improve enrichment quality.</div>
+            <div class="step-detail">
+              <span class="hi">addSamplesToTable(rawTable, sampleSize=5)</span><br>
+              SELECT DISTINCT {col} FROM {table} LIMIT 5<br>
+              → sampleValues: "pending, shipped, delivered"
+            </div>
+          </div>
+        </div>
+
+        <div class="pipe-step s3">
+          <div class="step-gutter">
+            <div class="step-num">3</div>
+            <div class="step-line"></div>
+          </div>
+          <div class="step-body">
+            <div class="step-name">Hash Check · Skip if Fresh</div>
+            <div class="step-desc">A SHA-256 hash of the table's schema structure (column names, types, nullability, key types) is compared against the stored hash. If the schema hasn't changed, the LLM call is skipped entirely.</div>
+            <div class="step-detail">
+              <span class="hi">EnrichmentStore.hashRawTable(rawTable)</span><br>
+              SHA-256( tableName + sorted column definitions )<br>
+              <span class="hi">isEnrichmentFresh()</span> → skip if hashes match
+            </div>
+          </div>
+        </div>
+
+        <div class="pipe-step s4">
+          <div class="step-gutter">
+            <div class="step-num">4</div>
+            <div class="step-line"></div>
+          </div>
+          <div class="step-body">
+            <div class="step-name">LLM Enrichment Call</div>
+            <div class="step-desc">The schema + samples are sent to the configured LLM. The model returns a structured JSON object with business-friendly names, plain English descriptions, use-cases, and column synonyms.</div>
+            <div class="step-detail">
+              <span class="hi">BaseLLM.enrichTable(rawTable, hash)</span><br>
+              → businessName: "Customer Orders"<br>
+              → description: "All purchases made by..."<br>
+              → synonyms: ["purchases", "transactions"]<br>
+              → columns[].businessLabel, .synonyms,<br>
+              &nbsp;&nbsp; .description, .exampleQuestions
+            </div>
+          </div>
+        </div>
+
+        <div class="pipe-step s5">
+          <div class="step-gutter">
+            <div class="step-num">5</div>
+          </div>
+          <div class="step-body">
+            <div class="step-name">Persist to MySQL</div>
+            <div class="step-desc">The enriched description is stored in <code style="font-size:11px;color:var(--cyan)">nlsql_enriched_schema</code> via an upsert. The schema hash is stored alongside it so future runs can detect whether re-enrichment is needed.</div>
+            <div class="step-detail">
+              <span class="hi">EnrichmentStore.save(enrichedTable)</span><br>
+              INSERT INTO nlsql_enriched_schema<br>
+              &nbsp;&nbsp; (table_name, enriched_json, schema_hash)<br>
+              ON DUPLICATE KEY UPDATE ...
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT: Storage -->
+    <div class="storage-panel">
+      <div class="storage-header">
+        <div class="panel-title" style="font-size:10px">
+          <span class="dot"></span>EnrichmentStore &nbsp;·&nbsp; <span style="color:var(--text-dim);font-weight:400">src/storage/</span>
+        </div>
+      </div>
+      <div class="storage-body">
+
+        <div class="table-schema">
+          <div class="table-schema-header">nlsql_enriched_schema</div>
+          <div class="schema-row pk">
+            <span class="schema-col">table_name</span>
+            <span class="schema-type">VARCHAR(255)</span>
+          </div>
+          <div class="schema-row">
+            <span class="schema-col">enriched_json</span>
+            <span class="schema-type">LONGTEXT</span>
+          </div>
+          <div class="schema-row">
+            <span class="schema-col">schema_hash</span>
+            <span class="schema-type">VARCHAR(64)</span>
+          </div>
+          <div class="schema-row">
+            <span class="schema-col">enriched_at</span>
+            <span class="schema-type">DATETIME</span>
+          </div>
+        </div>
+
+        <div class="storage-note">
+          Stored in the <strong>same MySQL database</strong> being queried. No separate service or vector store needed.
+        </div>
+
+        <div class="hash-badge">
+          <span class="hi">Change detection</span><br>
+          hash = SHA-256(<br>
+          &nbsp;&nbsp;tableName +<br>
+          &nbsp;&nbsp;columns sorted by position<br>
+          &nbsp;&nbsp;[name · type · nullable · key]<br>
+          )<br>
+          <br>
+          Re-enriches only when schema<br>
+          structure actually changes.
+        </div>
+
+        <div style="margin-top:14px; font-family:var(--mono); font-size:10px; color:var(--text-dim); line-height:1.8">
+          <span style="color:var(--cyan)">loadAll()</span> → all tables<br>
+          <span style="color:var(--cyan)">loadMany(names[])</span> → Map<br>
+          <span style="color:var(--cyan)">save(enriched)</span> → upsert<br>
+          <span style="color:var(--cyan)">delete(name)</span> / <span style="color:var(--cyan)">clear()</span>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /lower-grid -->
+
+  <!-- ── Phase divider: QUERY ───────────────────────────────────────────── -->
+  <div class="phase-divider">
+    <div class="phase-line"></div>
+    <span class="phase-tag query-tag">② Query Phase &nbsp;·&nbsp; every client.query() call</span>
+    <div class="phase-line"></div>
+  </div>
+
+  <!-- ── Query Pipeline ─────────────────────────────────────────────────── -->
+  <div class="query-pipeline-section">
+    <div class="query-pipeline">
+
+      <div class="qstep qs1">
+        <div class="qstep-num">STEP 01</div>
+        <div class="qstep-name">Retrieve Context</div>
+        <div class="qstep-desc">Find the most relevant enriched tables for the user's question.</div>
+        <div class="qstep-detail">
+          <span class="hi">findRelevantTables(query, max=5)</span><br>
+          Keyword scoring across:<br>
+          · table business names<br>
+          · descriptions & synonyms<br>
+          · column labels & synonyms<br>
+          · example questions<br>
+          Sorted by match count ↓
+        </div>
+      </div>
+
+      <div class="qstep qs2">
+        <div class="qstep-num">STEP 02</div>
+        <div class="qstep-name">Generate SQL</div>
+        <div class="qstep-desc">The enriched schema context + user question sent to LLM.</div>
+        <div class="qstep-detail">
+          <span class="hi">BaseLLM.generateSQL(query, tables[])</span><br>
+          System prompt rules:<br>
+          · SELECT only<br>
+          · table.column notation<br>
+          · MySQL syntax<br>
+          · LIMIT 1000 default<br>
+          Optional few-shot examples
+        </div>
+      </div>
+
+      <div class="qstep qs3">
+        <div class="qstep-num">STEP 03</div>
+        <div class="qstep-name">Validate SQL</div>
+        <div class="qstep-desc">Two-tier safety check before any query is executed.</div>
+        <div class="qstep-detail">
+          <span class="hi">SQLValidator.validate(sql)</span><br>
+          Tier 1 — Structural:<br>
+          · Must start with SELECT<br>
+          · Rejects multi-statements<br>
+          Tier 2 — Keyword blocklist:<br>
+          · DROP · DELETE · INSERT<br>
+          · UPDATE · ALTER · CREATE …
+        </div>
+      </div>
+
+      <div class="qstep qs4">
+        <div class="qstep-num">STEP 04</div>
+        <div class="qstep-name">Execute &amp; Return</div>
+        <div class="qstep-desc">Validated SQL runs against MySQL. Results + timing returned.</div>
+        <div class="qstep-detail">
+          <span class="hi">MySQLAdapter.executeQuery(sql, maxRows)</span><br>
+          Auto-appends LIMIT if absent<br><br>
+          Returns QueryResult:<br>
+          · sql: string<br>
+          · results: Record[]<br>
+          · error: string | null<br>
+          · timing: { retrievalMs,<br>
+          &nbsp;&nbsp;generationMs, validationMs,<br>
+          &nbsp;&nbsp;executionMs, totalMs }
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Legend ─────────────────────────────────────────────────────────── -->
+  <div class="legend">
+    <div class="legend-phase">
+      <div class="legend-stripe" style="background:var(--purple)"></div>
+      <span class="legend-label"><strong>Enrichment phase</strong> — one-time setup, re-runs only when schema changes</span>
+    </div>
+    <div class="legend-phase">
+      <div class="legend-stripe" style="background:var(--green)"></div>
+      <span class="legend-label"><strong>Query phase</strong> — every <code style="font-family:var(--mono);font-size:11px">client.query()</code> call at runtime</span>
+    </div>
+    <div class="legend-sep"></div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--cyan)"></span>MySQLAdapter</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--purple)"></span>SchemaEnricher</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--blue)"></span>LLM Provider</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--amber)"></span>EnrichmentStore</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--red)"></span>SQLValidator</div>
+  </div>
+
+</div><!-- /diagram -->
+
+</body>
+</html>

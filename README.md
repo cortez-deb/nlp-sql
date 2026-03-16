@@ -2,18 +2,18 @@
 
 **Natural Language to SQL** — Ask questions in plain English, get database results back.
 
-`nlsql` connects to your MySQL database, uses an LLM (Google Gemini) to understand your schema and the user's question, generates a validated read-only SQL query, and returns the results.
+`nlsql` connects to your MySQL database, uses an LLM (Google Gemini,OpenAI,Ollama) to understand your schema and the user's question, generates a validated read-only SQL query, and returns the results.
 
 ---
 
 ## How it works
 
 ```
-User question → [Retrieve schema context] → [Gemini generates SQL]
+User question → [Retrieve schema context] → [LLM generates SQL]
               → [Validate: SELECT only]   → [Execute] → Results
 ```
 
-The **enrichment pipeline** (run once at setup) uses Gemini to translate your technical schema into business-friendly descriptions, stored in a `nlsql_enriched_schema` table in your own database. This powers accurate natural language matching at query time.
+The **enrichment pipeline** (run once at setup) uses LLM to translate your technical schema into business-friendly descriptions, stored in a `nlsql_enriched_schema` table in your own database. This powers accurate natural language matching at query time.
 
 ---
 

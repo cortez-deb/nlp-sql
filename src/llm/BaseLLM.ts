@@ -70,7 +70,8 @@ export abstract class BaseLLM {
   abstract generateSQL(
     userQuery: string,
     contextTables: EnrichedTable[],
-    fewShotExamples?: FewShotExample[]
+    fewShotExamples?: FewShotExample[],
+    databaseDialect?: string
   ): Promise<string>;
 
   // ─────────────────────────────────────────────────────────────────────────

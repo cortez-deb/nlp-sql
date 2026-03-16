@@ -22,18 +22,18 @@
  *   GEMINI_API_KEY - Your Google Gemini API key
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-const src_1 = require("../index.js");
+const index_1 = require("../index");
 async function main() {
     // ── Step 1: Create the client ──────────────────────────────────────────────
     //
     // Pass your database and LLM credentials here.
     // Best practice: load these from environment variables, never hardcode them.
-    const client = new src_1.NLSQLClient({
+    const client = new index_1.NLSQLClient({
         db: {
             host: process.env['DB_HOST'] ?? 'localhost',
             port: 3306,
-            user: process.env['DB_USER'] ?? '',
-            password: process.env['DB_PASSWORD'] ?? '',
+            user: process.env['DB_USER'] ?? 'root',
+            password: process.env['DB_PASSWORD'] ?? '1234',
             database: process.env['DB_NAME'] ?? 'shop',
             // Use a small connection pool for this example
             connectionLimit: 3,
@@ -89,6 +89,7 @@ async function main() {
         console.log('Q: How many orders were placed this week?');
         const result1 = await client.query('How many orders were placed this week?', {
             fewShotExamples: examples,
+            databaseDialect: 'MariaDB', // You can specify the database dialect for better SQL generation
         });
         if (result1.error) {
             console.error('Error:', result1.error);
@@ -100,10 +101,11 @@ async function main() {
         }
         // Query 2: Ranked list
         console.log('\n' + '─'.repeat(60));
-        console.log('Q: Who are our top 5 customers by total spend?');
-        const result2 = await client.query('Who are our top 5 customers by total spend?', {
+        console.log('Q:Who are our top 5 customers by total spend? what did they purchase?');
+        const result2 = await client.query('Who are our top 5 customers by total spend? what did they purchase?', {
             maxRows: 5,
             fewShotExamples: examples,
+            databaseDialect: 'MariaDB',
         });
         if (result2.error) {
             console.error('Error:', result2.error);
@@ -117,13 +119,43 @@ async function main() {
         console.log('Q: Show me all pending orders');
         const result3 = await client.query("Show me all pending orders", {
             maxRows: 20,
+            databaseDialect: 'MariaDB',
         });
         if (result3.error) {
             console.error('Error:', result3.error);
         }
         else {
             console.log('SQL:', result3.sql);
-            console.log(`${result3.results?.length} rows returned`);
+            console.table(result3.results);
+        }
+        //testing reasoning
+        // Query 3: Filtered with status
+        console.log('\n' + '─'.repeat(60));
+        console.log('Q: what is the total revenue for each product category?');
+        const result4 = await client.query("What is the total revenue for each product category?", {
+            maxRows: 20,
+            databaseDialect: 'MariaDB',
+        });
+        if (result4.error) {
+            console.error('Error:', result4.error);
+        }
+        else {
+            console.log('SQL:', result4.sql);
+            console.table(result4.results);
+        }
+        // Query 3: Filtered with status
+        console.log('\n' + '─'.repeat(60));
+        console.log('Q: Payment method distribution for orders over $100?');
+        const result5 = await client.query("What is the payment method distribution for orders over $100?", {
+            maxRows: 20,
+            databaseDialect: 'MariaDB',
+        });
+        if (result5.error) {
+            console.error('Error:', result5.error);
+        }
+        else {
+            console.log('SQL:', result5.sql);
+            console.table(result5.results);
         }
         // ── Step 4: Inspect the enriched schema (optional) ────────────────────────
         //
@@ -133,9 +165,9 @@ async function main() {
         // console.log('Enriched schema overview:');
         // const enrichedTables = await client.getEnrichedSchema();
         // for (const table of enrichedTables) {
-        //     console.log(`\n  ${table.tableName} → "${table.businessName}"`);
-        //     console.log(`  Synonyms: ${table.synonyms.join(', ')}`);
-        //     console.log(`  Columns: ${table.columns.map((c) => c.name).join(', ')}`);
+        //   console.log(`\n  ${table.tableName} → "${table.businessName}"`);
+        //   console.log(`  Synonyms: ${table.synonyms.join(', ')}`);
+        //   console.log(`  Columns: ${table.columns.map((c) => c.name).join(', ')}`);
         // }
         // ── Step 5: Standalone SQL validation (optional) ──────────────────────────
         //

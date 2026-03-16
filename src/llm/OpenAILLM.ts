@@ -200,7 +200,8 @@ export class OpenAILLM extends BaseLLM {
   async generateSQL(
     userQuery: string,
     contextTables: EnrichedTable[],
-    fewShotExamples: FewShotExample[] = []
+    fewShotExamples: FewShotExample[] = [],
+    databaseDialect: string = 'mysql'
   ): Promise<string> {
     const schemaContext = this.buildSchemaContext(contextTables);
     const fewShotBlock = this.buildFewShotBlock(fewShotExamples);
@@ -208,8 +209,8 @@ export class OpenAILLM extends BaseLLM {
     const messages: OpenAIMessage[] = [
       {
         role: 'system',
-        content: `You are an expert MySQL query generator.
-Your ONLY job is to convert the user's natural language question into a valid MySQL SELECT query.
+        content: `You are an expert ${databaseDialect} query generator.
+Your ONLY job is to convert the user's natural language question into a valid ${databaseDialect} SELECT query.
 
 HARD RULES — always follow these without exception:
 1. Output ONLY the SQL query. No explanation. No markdown. No code fences.
@@ -217,7 +218,7 @@ HARD RULES — always follow these without exception:
 3. Always use table_name.column_name notation (e.g. orders.status).
 4. Never use SELECT *. Always list specific column names.
 5. Only use table and column names from the schema provided by the user.
-6. Use MySQL syntax: NOW(), DATE_SUB(), DATE_FORMAT(), IFNULL(), etc.
+6. Use ${databaseDialect} syntax: NOW(), DATE_SUB(), DATE_FORMAT(), IFNULL(), etc.
 7. Unless the user asks for a count or total, add LIMIT 1000 at the end.
 8. If the question cannot be answered with the available schema, respond with exactly:
    -- UNABLE_TO_ANSWER: <brief reason>`,

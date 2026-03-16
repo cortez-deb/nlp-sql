@@ -127,6 +127,7 @@ export class OllamaLLM extends BaseLLM {
    * Defaults to the standard local address.
    */
   private readonly baseURL: string;
+  private readonly databaseDialect: string = 'mysql';
 
   /**
    * Creates a new OllamaLLM instance.
@@ -235,16 +236,17 @@ export class OllamaLLM extends BaseLLM {
   async generateSQL(
     userQuery: string,
     contextTables: EnrichedTable[],
-    fewShotExamples: FewShotExample[] = []
+    fewShotExamples: FewShotExample[] = [],
   ): Promise<string> {
     const schemaContext = this.buildSchemaContext(contextTables);
     const fewShotBlock  = this.buildFewShotBlock(fewShotExamples);
+    const databaseDialect= this.databaseDialect || 'mysql';
 
     const messages: OllamaMessage[] = [
       {
         role: 'system',
-        content: `You are an expert MySQL query generator.
-Your ONLY output must be a single valid MySQL SELECT query — nothing else.
+        content: `You are an expert ${databaseDialect} query generator.
+Your ONLY output must be a single valid ${databaseDialect.toUpperCase()} SELECT query — nothing else.
 
 RULES (follow these strictly):
 1. Output ONLY the SQL. No explanation. No markdown. No code fences. No comments.
@@ -252,7 +254,7 @@ RULES (follow these strictly):
 3. Always prefix column names with their table name: table_name.column_name.
 4. Never use SELECT *. Always name specific columns.
 5. Use only table and column names from the schema provided.
-6. Use MySQL syntax: NOW(), DATE_SUB(), DATE_FORMAT(), IFNULL(), COALESCE().
+6. Use ${databaseDialect.toUpperCase()} syntax: NOW(), DATE_SUB(), DATE_FORMAT(), IFNULL(), COALESCE().
 7. Add LIMIT 1000 unless the user asks for a count or sum.
 8. If you cannot answer with the available schema, output exactly:
    -- UNABLE_TO_ANSWER: <reason>`,

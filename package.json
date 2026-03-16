@@ -1,7 +1,7 @@
 {
   "name": "nlsql",
   "version": "1.0.0",
-  "description": "A Natural Language to SQL library. Ask questions in plain English, get SQL query results back. Supports MySQL and Gemini LLMs.",
+  "description": "A Natural Language to SQL library. Ask questions in plain English, get SQL query results back. Supports MySQL and LLMs.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

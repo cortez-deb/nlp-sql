@@ -304,7 +304,8 @@ export class NLSQLClient {
       rawSQL = await this.llm.generateSQL(
         question,
         contextTables,
-        options.fewShotExamples ?? []
+        options.fewShotExamples ?? [],
+        options.databaseDialect ?? 'mysql'
       );
     } catch (err) {
       return this.errorResult(

@@ -326,13 +326,14 @@ RESPOND WITH ONLY VALID JSON. No explanation, no markdown, just the JSON object.
   private buildSQLGenerationPrompt(
     userQuery: string,
     contextTables: EnrichedTable[],
-    fewShotExamples: FewShotExample[]
+    fewShotExamples: FewShotExample[],
+    databaseDialect: string = 'mysql'
   ): string {
     const schemaContext = this.buildSchemaContext(contextTables);
     const fewShotBlock = this.buildFewShotBlock(fewShotExamples);
 
-    return `You are an expert MySQL query generator. Your ONLY job is to convert a
-user's natural language question into a valid MySQL SELECT query.
+    return `You are an expert ${databaseDialect} query generator. Your ONLY job is to convert a
+user's natural language question into a valid ${databaseDialect} SELECT query.
 
 ════════════════════════════════════════════════════════
 HARD RULES — you must ALWAYS follow these:
