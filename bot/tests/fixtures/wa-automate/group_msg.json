@@ -1,0 +1,15 @@
+{
+  "ts": 1760000000,
+  "event": "onMessage",
+  "session": "default",
+  "data": {
+    "id": "wam_grp",
+    "body": "Group msg",
+    "from": "123-456@g.us",
+    "chatId": "123-456@g.us",
+    "fromMe": false,
+    "isGroupMsg": true,
+    "type": "chat",
+    "t": 1760000000
+  }
+}

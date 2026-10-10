@@ -1,0 +1,6 @@
+[
+  {
+    "question": "How many total products do we have?",
+    "sql": "SELECT COUNT(*) AS total_products FROM products"
+  }
+]

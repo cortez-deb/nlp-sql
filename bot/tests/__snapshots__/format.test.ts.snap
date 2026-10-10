@@ -1,0 +1,72 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Formatting module renders 10+ rows footer and export prompt when rows are cut: 10+ rows footer 1`] = `
+"\`\`\`
+item     qty
+-------  ---
+Item 1    10
+Item 2    20
+Item 3    30
+Item 4    40
+Item 5    50
+Item 6    60
+Item 7    70
+Item 8    80
+Item 9    90
+Item 10  100
+\`\`\`
+
+Showing 10 of 15 rows.
+Reply "csv" for the full result as a file."
+`;
+
+exports[`Formatting module renders small table when rowCount >= 2: small table 1`] = `
+"Found 2 widgets.
+
+\`\`\`
+name      price
+--------  -----
+Widget A   15.5
+Widget B     99
+\`\`\`"
+`;
+
+exports[`Formatting module renders truncated footer when result is truncated: truncated footer 1`] = `
+"\`\`\`
+item   
+-------
+Item 1 
+Item 2 
+Item 3 
+Item 4 
+Item 5 
+Item 6 
+Item 7 
+Item 8 
+Item 9 
+Item 10
+\`\`\`
+
+Result limited to 10 rows.
+Reply "csv" for the full result as a file."
+`;
+
+exports[`Formatting module renders wide table with +N more columns indicator: wide table 1`] = `
+"\`\`\`
+c1  c2  c3  c4
+--  --  --  --
+ A   B   C   D
+ 1   2   3   4
+\`\`\`
+
++2 more columns"
+`;
+
+exports[`Formatting module truncates long cell content to 18 chars with ellipsis: long cell 1`] = `
+"\`\`\`
+desc              
+------------------
+This is a very lo…
+Short             
+\`\`\`"
+`;

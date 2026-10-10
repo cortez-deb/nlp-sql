@@ -47,6 +47,7 @@ export type {
 
   // Query types
   QueryResult,
+  QueryErrorKind,
   QueryOptions,
   FewShotExample,
   EnrichmentOptions,

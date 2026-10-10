@@ -19,6 +19,7 @@ import type {
   MySQLConnectionConfig,
   LLMConfig,
   QueryResult,
+  QueryErrorKind,
   QueryOptions,
   EnrichmentOptions,
   EnrichedTable,
@@ -54,6 +55,20 @@ function isRetryableMySQLError(err: any): boolean {
   if (err.code && RETRYABLE_CODES.has(String(err.code))) return true;
   if (err.errno && RETRYABLE_ERRNOS.has(Number(err.errno))) return true;
   return false;
+}
+
+function isTimeoutMySQLError(err: any): boolean {
+  if (!err || typeof err !== 'object') return false;
+  return (
+    err.name === 'AbortError' ||
+    err.name === 'TimeoutError' ||
+    err.code === 'PROTOCOL_SEQUENCE_TIMEOUT' ||
+    err.code === 'ER_QUERY_TIMEOUT' ||
+    err.code === 'ABORT_ERR' ||
+    err.errno === 3024 ||
+    err.errno === 1969 ||
+    /timed out/i.test(err.message ?? '')
+  );
 }
 
 export class NLSQLClient {
@@ -129,6 +144,9 @@ export class NLSQLClient {
     const maxRetries = options.maxRetries ?? 2;
     const queryTimeoutMs = options.timeoutMs ?? this.config.security?.queryTimeoutMs ?? 10000;
 
+    const currentDate =
+      options.currentDate ?? new Date().toLocaleDateString('en-CA');
+
     // ── Step 1: Retrieve schema context ──────────────────────────────────────
     const retrievalStart = Date.now();
     let allEnrichedTables: EnrichedTable[];
@@ -137,14 +155,16 @@ export class NLSQLClient {
     } catch (err) {
       return this.errorResult(
         `Failed to retrieve schema context: ${err instanceof Error ? err.message : String(err)}`,
-        startTime
+        startTime,
+        'config'
       );
     }
 
     if (allEnrichedTables.length === 0) {
       return this.errorResult(
         'No enriched schema found. Please run client.enrich() before querying.',
-        startTime
+        startTime,
+        'config'
       );
     }
 
@@ -183,12 +203,14 @@ export class NLSQLClient {
           dialect: options.dialect ?? 'mysql',
           history: options.history ?? [],
           previousAttempt,
+          currentDate,
         });
       } catch (err) {
         generationMs += Date.now() - genStart;
         return this.errorResult(
           `LLM SQL generation failed: ${err instanceof Error ? err.message : String(err)}`,
           startTime,
+          'llm',
           retrievalMs,
           generationMs,
           attempts
@@ -206,11 +228,30 @@ export class NLSQLClient {
       validationMs += Date.now() - valStart;
 
       if (!validation.isValid) {
-        if (validation.kind === 'unable' || validation.kind === 'empty') {
+        if (validation.kind === 'unable') {
           return {
             sql,
             results: null,
             error: validation.reason,
+            errorKind: 'unable',
+            attempts,
+            truncated: false,
+            rowCount: 0,
+            timing: {
+              retrievalMs,
+              generationMs,
+              validationMs,
+              executionMs,
+              totalMs: Date.now() - startTime,
+            },
+          };
+        }
+        if (validation.kind === 'empty') {
+          return {
+            sql,
+            results: null,
+            error: validation.reason ?? 'Empty SQL',
+            errorKind: 'rejected',
             attempts,
             truncated: false,
             rowCount: 0,
@@ -246,10 +287,12 @@ export class NLSQLClient {
           previousAttempt = { sql, error: errMsg };
           continue;
         } else {
+          const isTimeout = isTimeoutMySQLError(err);
           return {
             sql,
             results: null,
             error: `Query execution failed: ${errMsg}`,
+            errorKind: isTimeout ? 'timeout' : 'db',
             attempts,
             truncated: false,
             rowCount: 0,
@@ -272,6 +315,7 @@ export class NLSQLClient {
         error: previousAttempt
           ? `Query failed after ${attempts} attempts. Last error: ${previousAttempt.error}`
           : 'Query failed to generate valid SQL.',
+        errorKind: 'rejected',
         attempts,
         truncated: false,
         rowCount: 0,
@@ -410,6 +454,7 @@ export class NLSQLClient {
   private errorResult(
     error: string,
     startTime: number,
+    errorKind: QueryErrorKind = 'config',
     retrievalMs = 0,
     generationMs = 0,
     attempts = 0
@@ -418,6 +463,7 @@ export class NLSQLClient {
       sql: null,
       results: null,
       error,
+      errorKind,
       attempts,
       truncated: false,
       rowCount: 0,

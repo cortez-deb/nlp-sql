@@ -1,0 +1,18 @@
+{
+  "ts": 1760000000,
+  "event": "onMessage",
+  "session": "default",
+  "data": {
+    "id": "wam_001",
+    "body": "Orders summary",
+    "from": "254712345678@c.us",
+    "chatId": "254712345678@c.us",
+    "sender": {
+      "id": "254712345678@c.us"
+    },
+    "fromMe": false,
+    "isGroupMsg": false,
+    "type": "chat",
+    "t": 1760000000
+  }
+}

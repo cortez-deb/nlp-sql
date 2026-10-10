@@ -1,0 +1,19 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-10T12:00:00.000Z",
+  "sessionId": "test-session-123",
+  "idempotencyKey": "msg_test-session-123_lid_001_wh_1",
+  "data": {
+    "id": "lid_001",
+    "from": "98765432101234@lid",
+    "chatId": "98765432101234@lid",
+    "author": "98765432101234@lid",
+    "senderPhone": "254712345678",
+    "body": "Hello from LID",
+    "type": "text",
+    "timestamp": 1760000000,
+    "isGroup": false,
+    "kind": "individual",
+    "fromMe": false
+  }
+}

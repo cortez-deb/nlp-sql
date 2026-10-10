@@ -1,0 +1,17 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-10T12:00:00.000Z",
+  "sessionId": "test-session-123",
+  "idempotencyKey": "msg_test-session-123_self_001_wh_1",
+  "data": {
+    "id": "self_001",
+    "from": "bot@c.us",
+    "chatId": "254712345678@c.us",
+    "body": "Sent by myself",
+    "type": "text",
+    "timestamp": 1760000000,
+    "isGroup": false,
+    "kind": "individual",
+    "fromMe": true
+  }
+}

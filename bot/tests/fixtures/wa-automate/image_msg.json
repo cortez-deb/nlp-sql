@@ -1,0 +1,14 @@
+{
+  "ts": 1760000000,
+  "event": "onMessage",
+  "data": {
+    "id": "wam_img",
+    "body": "",
+    "from": "254712345678@c.us",
+    "chatId": "254712345678@c.us",
+    "fromMe": false,
+    "isGroupMsg": false,
+    "type": "image",
+    "t": 1760000000
+  }
+}

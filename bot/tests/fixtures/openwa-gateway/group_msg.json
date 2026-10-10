@@ -1,0 +1,18 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-10T12:00:00.000Z",
+  "sessionId": "test-session-123",
+  "idempotencyKey": "msg_test-session-123_grp_001_wh_1",
+  "data": {
+    "id": "grp_001",
+    "from": "123456789-987654@g.us",
+    "chatId": "123456789-987654@g.us",
+    "author": "254712345678@c.us",
+    "body": "Hello group",
+    "type": "text",
+    "timestamp": 1760000000,
+    "isGroup": true,
+    "kind": "group",
+    "fromMe": false
+  }
+}

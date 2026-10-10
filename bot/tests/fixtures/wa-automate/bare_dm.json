@@ -1,0 +1,13 @@
+{
+  "id": "wam_002",
+  "body": "Bare message",
+  "from": "254712345678@c.us",
+  "chatId": "254712345678@c.us",
+  "sender": {
+    "id": "254712345678@c.us"
+  },
+  "fromMe": false,
+  "isGroupMsg": false,
+  "type": "chat",
+  "t": 1760000000
+}

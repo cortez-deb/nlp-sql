@@ -1,0 +1,17 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-10T12:00:00.000Z",
+  "sessionId": "test-session-123",
+  "idempotencyKey": "msg_test-session-123_st_001_wh_1",
+  "data": {
+    "id": "st_001",
+    "from": "status@broadcast",
+    "chatId": "status@broadcast",
+    "body": "Status broadcast",
+    "type": "text",
+    "timestamp": 1760000000,
+    "isGroup": false,
+    "kind": "status",
+    "fromMe": false
+  }
+}

@@ -4,3 +4,5 @@ dist/
 .env.*
 !.env.example
 .nlsql/
+.capture/
+bot/.capture/

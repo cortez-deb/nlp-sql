@@ -1,0 +1,20 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-10T12:00:00.000Z",
+  "sessionId": "test-session-123",
+  "idempotencyKey": "msg_test-session-123_msg_001_wh_1",
+  "deliveryId": "dlv_1234",
+  "data": {
+    "id": "msg_001",
+    "from": "254712345678@c.us",
+    "to": "bot@c.us",
+    "chatId": "254712345678@c.us",
+    "author": "254712345678@c.us",
+    "body": "How many orders were placed?",
+    "type": "text",
+    "timestamp": 1760000000,
+    "isGroup": false,
+    "kind": "individual",
+    "fromMe": false
+  }
+}
