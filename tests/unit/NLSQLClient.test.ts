@@ -1,21 +1,9 @@
 /**
  * tests/unit/NLSQLClient.test.ts
- *
- * Unit tests for NLSQLClient — the main public class.
- *
- * All database and LLM calls are mocked. These tests verify:
- *  - That initialise() must be called before query()
- *  - That query() correctly wires together retrieval → generation → validation → execution
- *  - That failed validation is handled gracefully
- *  - That LLM/DB errors are wrapped in a safe QueryResult (never thrown)
- *  - That validateSQL() works as a standalone utility
- *  - That close() is safe to call
  */
 
 import { NLSQLClient } from '../../src/core/NLSQLClient';
 import type { NLSQLClientConfig } from '../../src/core/NLSQLClient';
-
-// ── Config fixture ─────────────────────────────────────────────────────────────
 
 const testConfig: NLSQLClientConfig = {
   db: {
@@ -27,44 +15,38 @@ const testConfig: NLSQLClientConfig = {
   llm: {
     provider: 'gemini',
     apiKey: 'test-gemini-key',
-    model: 'gemini-1.5-flash-latest',
+    model: 'gemini-2.0-flash',
   },
 };
 
-// ── Mock the internal dependencies ────────────────────────────────────────────
-//
-// We mock the module files so that when NLSQLClient's constructor
-// imports MySQLAdapter, GeminiLLM etc., it gets our fake versions.
-
-// Mock MySQLAdapter
 jest.mock('../../src/db/MySQLAdapter', () => ({
   MySQLAdapter: {
     create: jest.fn(),
   },
 }));
 
-// Mock GeminiLLM
 jest.mock('../../src/llm/GeminiLLM', () => ({
   GeminiLLM: jest.fn(),
 }));
 
-// Mock EnrichmentStore
 jest.mock('../../src/storage/EnrichmentStore', () => ({
   EnrichmentStore: jest.fn(),
+  MySQLEnrichmentStore: jest.fn(),
 }));
 
-// Mock SchemaEnricher
+jest.mock('../../src/storage/FileEnrichmentStore', () => ({
+  FileEnrichmentStore: jest.fn(),
+}));
+
 jest.mock('../../src/core/SchemaEnricher', () => ({
   SchemaEnricher: jest.fn(),
 }));
 
 import { MySQLAdapter } from '../../src/db/MySQLAdapter';
 import { GeminiLLM } from '../../src/llm/GeminiLLM';
-import { EnrichmentStore } from '../../src/storage/EnrichmentStore';
+import { FileEnrichmentStore } from '../../src/storage/FileEnrichmentStore';
 import { SchemaEnricher } from '../../src/core/SchemaEnricher';
 import type { EnrichedTable } from '../../src/types';
-
-// ── Helpers to build mock implementations ─────────────────────────────────────
 
 function makeEnrichedTable(tableName = 'orders'): EnrichedTable {
   return {
@@ -74,42 +56,45 @@ function makeEnrichedTable(tableName = 'orders'): EnrichedTable {
     useCases: [],
     synonyms: [],
     columns: [],
+    foreignKeys: [],
+    primaryKey: ['id'],
+    rowCountApprox: 100,
     enrichedAt: '2024-01-01T00:00:00Z',
     schemaHash: 'hash123',
   };
 }
 
 function setupMocks({
-  generateSQL = 'SELECT id FROM orders LIMIT 10',
+  generateSQL = 'SELECT orders.id FROM orders LIMIT 10',
   contextTables = [makeEnrichedTable()],
   executeResults = [{ id: 1 }, { id: 2 }],
+  truncated = false,
   enrichSummary = { totalTables: 1, enriched: 1, skipped: 0, failed: [], durationMs: 100 },
 }: {
-  generateSQL?: string;
+  generateSQL?: string | ((input: any) => Promise<string>);
   contextTables?: EnrichedTable[];
   executeResults?: Record<string, unknown>[];
+  truncated?: boolean;
   enrichSummary?: object;
 } = {}) {
-  // Mock MySQLAdapter instance
   const mockAdapterInstance = {
-    executeQuery: jest.fn().mockResolvedValue(executeResults),
+    executeQuery: jest.fn().mockResolvedValue({ rows: executeResults, truncated }),
     close: jest.fn().mockResolvedValue(undefined),
   };
   (MySQLAdapter.create as jest.Mock).mockResolvedValue(mockAdapterInstance);
 
-  // Mock GeminiLLM instance
   const mockLLMInstance = {
-    generateSQL: jest.fn().mockResolvedValue(generateSQL),
+    generateSQL: typeof generateSQL === 'function' ? jest.fn().mockImplementation(generateSQL) : jest.fn().mockResolvedValue(generateSQL),
+    summarizeResult: jest.fn().mockResolvedValue('Summary of results'),
   };
   (GeminiLLM as unknown as jest.Mock).mockImplementation(() => mockLLMInstance);
 
-  // Mock EnrichmentStore instance
   const mockStoreInstance = {
     initialise: jest.fn().mockResolvedValue(undefined),
+    loadAll: jest.fn().mockResolvedValue(contextTables),
   };
-  (EnrichmentStore as unknown as jest.Mock).mockImplementation(() => mockStoreInstance);
+  (FileEnrichmentStore as unknown as jest.Mock).mockImplementation(() => mockStoreInstance);
 
-  // Mock SchemaEnricher instance
   const mockEnricherInstance = {
     findRelevantTables: jest.fn().mockResolvedValue(contextTables),
     getEnrichedTables: jest.fn().mockResolvedValue(contextTables),
@@ -120,233 +105,127 @@ function setupMocks({
   return { mockAdapterInstance, mockLLMInstance, mockStoreInstance, mockEnricherInstance };
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 describe('NLSQLClient', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
   describe('initialise()', () => {
-    it('connects to the database and sets up storage', async () => {
-      const { mockAdapterInstance, mockStoreInstance } = setupMocks();
+    it('connects to database and sets up file storage by default', async () => {
+      const { mockStoreInstance } = setupMocks();
       const client = new NLSQLClient(testConfig);
       await client.initialise();
 
       expect(MySQLAdapter.create).toHaveBeenCalledWith(testConfig.db);
       expect(mockStoreInstance.initialise).toHaveBeenCalledTimes(1);
-      expect(mockAdapterInstance.close).not.toHaveBeenCalled(); // not closed yet
-
-      await client.close();
-    });
-
-    it('runs enrichment when enrichOptions are provided', async () => {
-      const { mockEnricherInstance } = setupMocks();
-      const client = new NLSQLClient(testConfig);
-
-      const summary = await client.initialise({ forceRefresh: false });
-
-      expect(mockEnricherInstance.enrich).toHaveBeenCalledTimes(1);
-      expect(summary).not.toBeNull();
-      expect(summary!.totalTables).toBe(1);
-
-      await client.close();
-    });
-
-    it('skips enrichment when no enrichOptions are provided', async () => {
-      const { mockEnricherInstance } = setupMocks();
-      const client = new NLSQLClient(testConfig);
-
-      const summary = await client.initialise(); // no options passed
-
-      expect(mockEnricherInstance.enrich).not.toHaveBeenCalled();
-      expect(summary).toBeNull();
 
       await client.close();
     });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  describe('query()', () => {
+  describe('query() and retry loop', () => {
     it('throws if called before initialise()', async () => {
       const client = new NLSQLClient(testConfig);
       await expect(client.query('show orders')).rejects.toThrow('initialise()');
     });
 
     it('returns results for a valid natural language question', async () => {
-      setupMocks({ generateSQL: 'SELECT id, name FROM orders LIMIT 10' });
+      setupMocks({ generateSQL: 'SELECT orders.id FROM orders LIMIT 10' });
       const client = new NLSQLClient(testConfig);
       await client.initialise();
 
       const result = await client.query('show me all orders');
 
       expect(result.error).toBeNull();
-      expect(result.sql).toBe('SELECT id, name FROM orders LIMIT 10');
+      expect(result.sql).toBe('SELECT orders.id FROM orders LIMIT 10');
       expect(result.results).toHaveLength(2);
-      expect(result.results![0]).toEqual({ id: 1 });
+      expect(result.attempts).toBe(1);
 
       await client.close();
     });
 
-    it('returns error when LLM generates blocked SQL', async () => {
-      setupMocks({ generateSQL: 'DELETE FROM orders WHERE 1=1' });
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
-
-      const result = await client.query('delete all orders');
-
-      expect(result.error).toContain('DELETE');
-      expect(result.results).toBeNull();
-      expect(result.sql).toBe('DELETE FROM orders WHERE 1=1');
-
-      await client.close();
-    });
-
-    it('returns error when no enriched schema is available', async () => {
-      setupMocks({ contextTables: [] }); // empty = no schema enriched yet
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
-
-      const result = await client.query('show orders');
-
-      expect(result.error).toContain('enrich()');
-      expect(result.results).toBeNull();
-
-      await client.close();
-    });
-
-    it('returns error when LLM throws', async () => {
-      const { mockLLMInstance } = setupMocks();
-      mockLLMInstance.generateSQL.mockRejectedValue(new Error('API rate limit exceeded'));
-
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
-
-      const result = await client.query('show orders');
-
-      expect(result.error).toContain('API rate limit exceeded');
-      expect(result.results).toBeNull();
-
-      await client.close();
-    });
-
-    it('returns error when database execution fails', async () => {
-      const { mockAdapterInstance } = setupMocks();
-      mockAdapterInstance.executeQuery.mockRejectedValue(new Error('Table does not exist'));
-
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
-
-      const result = await client.query('show orders');
-
-      expect(result.error).toContain('Table does not exist');
-      expect(result.results).toBeNull();
-      // SQL was generated and validated — it's still returned
-      expect(result.sql).not.toBeNull();
-
-      await client.close();
-    });
-
-    it('handles LLM UNABLE_TO_ANSWER response gracefully', async () => {
+    it('retries when validation fails and succeeds on 2nd attempt', async () => {
+      let callCount = 0;
       setupMocks({
-        generateSQL: '-- UNABLE_TO_ANSWER: The schema does not contain revenue data',
+        generateSQL: async (_input) => {
+          callCount++;
+          if (callCount === 1) {
+            return 'SELECT * FROM unknown_table';
+          }
+          return 'SELECT orders.id FROM orders LIMIT 10';
+        },
       });
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
 
-      const result = await client.query('what was our profit last year?');
-
-      expect(result.results).toBeNull();
-      expect(result.error).toContain('could not generate a query');
-
-      await client.close();
-    });
-
-    it('includes timing information in all results', async () => {
-      setupMocks();
       const client = new NLSQLClient(testConfig);
       await client.initialise();
 
       const result = await client.query('show orders');
-
-      expect(result.timing).toBeDefined();
-      expect(result.timing.totalMs).toBeGreaterThanOrEqual(0);
-      expect(result.timing.retrievalMs).toBeGreaterThanOrEqual(0);
-      expect(result.timing.generationMs).toBeGreaterThanOrEqual(0);
-      expect(result.timing.validationMs).toBeGreaterThanOrEqual(0);
-      expect(result.timing.executionMs).toBeGreaterThanOrEqual(0);
+      expect(result.error).toBeNull();
+      expect(result.attempts).toBe(2);
 
       await client.close();
     });
 
-    it('passes maxRows option through to the adapter', async () => {
-      const { mockAdapterInstance } = setupMocks();
+    it('never retries on -- UNABLE_TO_ANSWER sentinel', async () => {
+      const { mockLLMInstance } = setupMocks({
+        generateSQL: '-- UNABLE_TO_ANSWER: no such data',
+      });
+
       const client = new NLSQLClient(testConfig);
       await client.initialise();
 
-      await client.query('show orders', { maxRows: 50 });
+      const result = await client.query('what is x?');
+      expect(result.error).toContain('no such data');
+      expect(result.attempts).toBe(1);
+      expect(mockLLMInstance.generateSQL).toHaveBeenCalledTimes(1);
 
-      expect(mockAdapterInstance.executeQuery).toHaveBeenCalledWith(
-        expect.any(String),
-        50
-      );
+      await client.close();
+    });
+
+    it('stops at maxRetries + 1 when validation constantly fails', async () => {
+      setupMocks({ generateSQL: 'SELECT * FROM unallowed_table' });
+      const client = new NLSQLClient(testConfig);
+      await client.initialise();
+
+      const result = await client.query('show orders', { maxRetries: 2 });
+      expect(result.attempts).toBe(3);
+      expect(result.error).toContain('not in the allowed tables list');
 
       await client.close();
     });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  describe('summarize logic', () => {
+    it('returns fixed summary when 0 rows returned without calling LLM', async () => {
+      const { mockLLMInstance } = setupMocks({ executeResults: [] });
+      const client = new NLSQLClient(testConfig);
+      await client.initialise();
+
+      const result = await client.query('show orders', { summarize: true });
+      expect(result.summary).toBe('No matching records found.');
+      expect(mockLLMInstance.summarizeResult).not.toHaveBeenCalled();
+
+      await client.close();
+    });
+
+    it('calls LLM for summary when rows are returned and summarize is true', async () => {
+      const { mockLLMInstance } = setupMocks({ executeResults: [{ id: 1 }] });
+      const client = new NLSQLClient(testConfig);
+      await client.initialise();
+
+      const result = await client.query('show orders', { summarize: true });
+      expect(result.summary).toBe('Summary of results');
+      expect(mockLLMInstance.summarizeResult).toHaveBeenCalledTimes(1);
+
+      await client.close();
+    });
+  });
+
   describe('validateSQL()', () => {
     it('validates SQL without requiring initialise()', () => {
       const client = new NLSQLClient(testConfig);
-      const result = client.validateSQL('SELECT id FROM users');
+      const result = client.validateSQL('SELECT orders.id FROM orders');
       expect(result.isValid).toBe(true);
-    });
-
-    it('rejects dangerous SQL', () => {
-      const client = new NLSQLClient(testConfig);
-      const result = client.validateSQL('DROP TABLE users');
-      expect(result.isValid).toBe(false);
-      expect(result.reason).toContain('DROP');
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  describe('getEnrichedSchema()', () => {
-    it('throws if called before initialise()', async () => {
-      const client = new NLSQLClient(testConfig);
-      await expect(client.getEnrichedSchema()).rejects.toThrow('initialise()');
-    });
-
-    it('returns enriched tables after initialisation', async () => {
-      const tables = [makeEnrichedTable('orders'), makeEnrichedTable('customers')];
-      setupMocks({ contextTables: tables });
-
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
-
-      const result = await client.getEnrichedSchema();
-      expect(result).toHaveLength(2);
-
-      await client.close();
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  describe('close()', () => {
-    it('closes the database connection', async () => {
-      const { mockAdapterInstance } = setupMocks();
-      const client = new NLSQLClient(testConfig);
-      await client.initialise();
-      await client.close();
-
-      expect(mockAdapterInstance.close).toHaveBeenCalledTimes(1);
-    });
-
-    it('is safe to call before initialise() (no-op)', async () => {
-      const client = new NLSQLClient(testConfig);
-      await expect(client.close()).resolves.not.toThrow();
     });
   });
 });

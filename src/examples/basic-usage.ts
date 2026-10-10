@@ -25,28 +25,25 @@ import { NLSQLClient } from '../index';
 import type { FewShotExample } from '../index';
 
 async function main() {
-  // ── Step 1: Create the client ──────────────────────────────────────────────
-  //
-  // Pass your database and LLM credentials here.
-  // Best practice: load these from environment variables, never hardcode them.
+  const dbPassword = process.env['DB_PASSWORD'];
+  if (!dbPassword) {
+    throw new Error('Environment variable DB_PASSWORD is required');
+  }
 
   const client = new NLSQLClient({
     db: {
       host: process.env['DB_HOST'] ?? 'localhost',
       port: 3306,
       user: process.env['DB_USER'] ?? 'root',
-      password: process.env['DB_PASSWORD'] ?? '1234',
+      password: dbPassword,
       database: process.env['DB_NAME'] ?? 'shop',
-      // Use a small connection pool for this example
       connectionLimit: 3,
     },
-    llm: 
-    {
-       provider: 'ollama',
-       apiKey: '',
-       model: 'gpt-oss:120b-cloud', 
-       baseURL: 'http://192.168.100.122:11434'
-      },
+    llm: {
+      provider: 'gemini',
+      apiKey: process.env['GEMINI_API_KEY'] ?? '',
+      model: process.env['GEMINI_MODEL'] ?? 'gemini-2.0-flash',
+    },
   });
 
   try {
@@ -105,7 +102,7 @@ async function main() {
     console.log('Q: How many orders were placed this week?');
     const result1 = await client.query('How many orders were placed this week?', {
       fewShotExamples: examples,
-      databaseDialect: 'MariaDB', // You can specify the database dialect for better SQL generation
+      dialect: 'MariaDB', // You can specify the database dialect for better SQL generation
     });
 
     if (result1.error) {
@@ -122,7 +119,7 @@ async function main() {
     const result2 = await client.query('Who are our top 5 customers by total spend? what did they purchase?', {
       maxRows: 5,
       fewShotExamples: examples,
-      databaseDialect: 'MariaDB',
+      dialect: 'MariaDB',
     });
 
     if (result2.error) {
@@ -137,7 +134,7 @@ async function main() {
     console.log('Q: Show me all pending orders');
     const result3 = await client.query("Show me all pending orders", {
       maxRows: 20,
-      databaseDialect: 'MariaDB',
+      dialect: 'MariaDB',
     });
 
     if (result3.error) {
@@ -152,7 +149,7 @@ async function main() {
     console.log('Q: what is the total revenue for each product category?');
     const result4 = await client.query("What is the total revenue for each product category?", {
       maxRows: 20,
-      databaseDialect: 'MariaDB',
+      dialect: 'MariaDB',
     });
 
     if (result4.error) {
@@ -166,7 +163,7 @@ async function main() {
     console.log('Q: Payment method distribution for orders over $100?');
     const result5 = await client.query("What is the payment method distribution for orders over $100?", {
       maxRows: 20,
-      databaseDialect: 'MariaDB',
+      dialect: 'MariaDB',
     });
 
     if (result5.error) {

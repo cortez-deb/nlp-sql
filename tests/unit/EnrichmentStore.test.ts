@@ -102,6 +102,8 @@ function makeEnrichedTable(tableName = 'orders'): EnrichedTable {
         description: 'Unique identifier for each order.',
         synonyms: [],
         exampleQuestions: ['Show me order 123'],
+        dataType: 'int',
+        columnKey: 'PRI',
       },
       {
         name: 'total_amount',
@@ -109,8 +111,13 @@ function makeEnrichedTable(tableName = 'orders'): EnrichedTable {
         description: 'Total monetary value of the order.',
         synonyms: ['total', 'amount', 'price'],
         exampleQuestions: ['What is the average order total?'],
+        dataType: 'decimal',
+        columnKey: '',
       },
     ],
+    foreignKeys: [],
+    primaryKey: ['id'],
+    rowCountApprox: 5000,
     enrichedAt: '2024-01-15T10:00:00.000Z',
     schemaHash: 'abc123',
   };

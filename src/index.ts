@@ -1,33 +1,23 @@
 /**
  * src/index.ts
  *
- * This is the public API of the nlsql library.
- *
- * When someone installs nlsql and writes:
- *   import { NLSQLClient } from 'nlsql';
- *
- * This file determines what they can import. Only things exported here
- * are part of the public API. Internal implementation details (like
- * MySQLAdapter, GeminiLLM, etc.) are not exported — they are private.
- *
- * If you are a user of this library, start with NLSQLClient.
- * If you are extending this library (e.g. adding a new LLM provider),
- * you can also import BaseLLM and implement it.
+ * Public API of the nlsql library.
  */
 
-// ── Main Client (start here) ──────────────────────────────────────────────────
+// ── Main Client ──────────────────────────────────────────────────────────────
 export { NLSQLClient } from './core/NLSQLClient';
 export type { NLSQLClientConfig } from './core/NLSQLClient';
 
-// ── Enrichment types ──────────────────────────────────────────────────────────
+// ── Enrichment ──────────────────────────────────────────────────────────────
 export type { EnrichmentSummary, EnrichmentProgress } from './core/SchemaEnricher';
+export type { IEnrichmentStore } from './storage/IEnrichmentStore';
+export { FileEnrichmentStore } from './storage/FileEnrichmentStore';
+export { MySQLEnrichmentStore, EnrichmentStore } from './storage/EnrichmentStore';
 
-// ── LLM provider classes (use directly or extend to add new providers) ──────────────────────────
-export { BaseLLM }    from './llm/BaseLLM';
-export { GeminiLLM }  from './llm/GeminiLLM';
-export { OpenAILLM }  from './llm/OpenAILLM';
-export { OllamaLLM }  from './llm/OllamaLLM';
-export type { OllamaConfig } from './llm/OllamaLLM';
+// ── LLM provider classes & contracts ──────────────────────────────────────────
+export { BaseLLM } from './llm/BaseLLM';
+export type { GenerateSQLInput, SummarizeInput } from './llm/BaseLLM';
+export { GeminiLLM } from './llm/GeminiLLM';
 
 // ── All shared types and interfaces ───────────────────────────────────────────
 export type {
@@ -48,6 +38,7 @@ export type {
   QueryOptions,
   FewShotExample,
   EnrichmentOptions,
+  ConversationTurn,
 
   // Validation
   ValidationResult,

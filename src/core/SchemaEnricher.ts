@@ -1,125 +1,64 @@
 /**
  * core/SchemaEnricher.ts
  *
- * The SchemaEnricher orchestrates the one-time (or periodic) setup phase
- * of the nlsql library. It coordinates three other classes to produce
- * the enriched schema that powers the query engine:
- *
- *  1. MySQLAdapter     → read the raw schema from INFORMATION_SCHEMA
- *  2. BaseLLM          → send raw schema to the LLM, receive rich descriptions
- *  3. EnrichmentStore  → persist those rich descriptions to the database
- *
- * It also handles change detection — if a table's schema hasn't changed
- * since the last enrichment, it reuses the stored result instead of
- * making another expensive LLM API call.
+ * SchemaEnricher orchestrates reading, sampling, filtering, and enriching schema data.
  */
 
 import type { MySQLAdapter } from '../db/MySQLAdapter';
 import type { BaseLLM } from '../llm/BaseLLM';
-import type { EnrichmentStore } from '../storage/EnrichmentStore';
-import type { EnrichedTable, EnrichmentOptions, RawTable } from '../types';
+import type { IEnrichmentStore } from '../storage/IEnrichmentStore';
+import { hashRawTable } from '../storage/schemaHash';
+import type { EnrichedTable, EnrichmentOptions, RawTable, RawColumn } from '../types';
 
-/**
- * Progress information emitted during enrichment.
- * Useful for showing a progress bar or log messages in a CLI tool.
- */
 export interface EnrichmentProgress {
-  /** The table currently being processed. */
   tableName: string;
-
-  /** How many tables have been processed so far. */
   completed: number;
-
-  /** Total number of tables to process. */
   total: number;
-
-  /**
-   * Whether this table was freshly enriched (true) or
-   * the stored enrichment was reused (false).
-   */
   wasEnriched: boolean;
 }
 
-/**
- * Summary returned after the enrichment process completes.
- */
 export interface EnrichmentSummary {
-  /** Total number of tables that were examined. */
   totalTables: number;
-
-  /** Number of tables that were newly enriched or re-enriched. */
   enriched: number;
-
-  /** Number of tables that were skipped because their enrichment was up to date. */
   skipped: number;
-
-  /** Names of any tables that failed enrichment (with error details logged). */
   failed: string[];
-
-  /** Total time taken in milliseconds. */
   durationMs: number;
 }
 
-/**
- * SchemaEnricher orchestrates the full enrichment pipeline.
- *
- * Typical usage:
- *  1. Construct with the three dependencies (adapter, llm, store).
- *  2. Call `enrich()` once after initial setup.
- *  3. Call `enrich()` again whenever the schema changes.
- *  4. The query engine then uses `getEnrichedTables()` at query time.
- *
- * @example
- * const enricher = new SchemaEnricher(adapter, llm, store);
- *
- * const summary = await enricher.enrich({
- *   onProgress: (p) => console.log(`${p.completed}/${p.total}: ${p.tableName}`),
- * });
- *
- * console.log(`Enriched ${summary.enriched} tables, skipped ${summary.skipped}`);
- */
+export interface SchemaConfig {
+  excludeTables?: string[];
+  excludeColumns?: string[];
+}
+
+const DEFAULT_PII_PATTERN = /(pass(word)?|passwd|secret|token|api[_-]?key|ssn|card[_-]?(no|number)|cvv|iban)/i;
+
+function matchesGlob(text: string, pattern: string): boolean {
+  const regexStr = '^' + pattern.toLowerCase().replace(/\./g, '\\.').replace(/\*/g, '.*') + '$';
+  return new RegExp(regexStr, 'i').test(text);
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class SchemaEnricher {
   private readonly adapter: MySQLAdapter;
   private readonly llm: BaseLLM;
-  private readonly store: EnrichmentStore;
+  private readonly store: IEnrichmentStore;
+  private readonly schemaConfig?: SchemaConfig;
 
-  /**
-   * @param adapter - Open MySQLAdapter for schema introspection.
-   * @param llm     - LLM instance for generating business descriptions.
-   * @param store   - EnrichmentStore for persisting results.
-   */
-  constructor(adapter: MySQLAdapter, llm: BaseLLM, store: EnrichmentStore) {
+  constructor(
+    adapter: MySQLAdapter,
+    llm: BaseLLM,
+    store: IEnrichmentStore,
+    schemaConfig?: SchemaConfig
+  ) {
     this.adapter = adapter;
     this.llm = llm;
     this.store = store;
+    this.schemaConfig = schemaConfig;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // PUBLIC API
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Runs the full enrichment pipeline for all (or selected) tables.
-   *
-   * For each table:
-   *  1. Read the raw schema from INFORMATION_SCHEMA.
-   *  2. Collect sample values from each column.
-   *  3. Compute a hash of the schema to detect changes.
-   *  4. If the hash matches what's stored, skip (no LLM call needed).
-   *  5. Otherwise, call the LLM to generate an enriched description.
-   *  6. Store the result in the nlsql_enriched_schema table.
-   *
-   * @param options   - Controls which tables to enrich and other settings.
-   * @param onProgress - Optional callback invoked after each table is processed.
-   *                     Use this to display progress to the user.
-   * @returns EnrichmentSummary with counts of enriched/skipped/failed tables.
-   *
-   * @example
-   * const summary = await enricher.enrich(
-   *   { forceRefresh: false },
-   *   (p) => console.log(`Processing ${p.tableName} (${p.completed}/${p.total})`)
-   * );
-   */
   async enrich(
     options: EnrichmentOptions = {},
     onProgress?: (progress: EnrichmentProgress) => void
@@ -128,11 +67,13 @@ export class SchemaEnricher {
     const sampleSize = options.sampleSize ?? 5;
     const forceRefresh = options.forceRefresh ?? false;
 
-    // ── Step 1: Read raw schema ────────────────────────────────────────────
-
+    // Step 1: Read raw schema from database
     const rawTables = await this.adapter.getSchema(options.tables);
 
-    if (rawTables.length === 0) {
+    // Apply exclusions
+    const filteredTables = this.filterSchema(rawTables);
+
+    if (filteredTables.length === 0) {
       return {
         totalTables: 0,
         enriched: 0,
@@ -142,26 +83,19 @@ export class SchemaEnricher {
       };
     }
 
-    // ── Step 2: Load existing enrichments for change detection ─────────────
-
-    const tableNames = rawTables.map((t) => t.tableName);
+    // Step 2: Load existing enrichments
+    const tableNames = filteredTables.map((t) => t.tableName);
     const storedMap = await this.store.loadMany(tableNames);
-
-    // ── Step 3: Process each table ─────────────────────────────────────────
 
     let enrichedCount = 0;
     let skippedCount = 0;
     const failedTables: string[] = [];
 
-    for (let i = 0; i < rawTables.length; i++) {
-      const rawTable = rawTables[i]!;
+    for (let i = 0; i < filteredTables.length; i++) {
+      const rawTable = filteredTables[i]!;
       const stored = storedMap.get(rawTable.tableName) ?? null;
 
-      // Compute schema hash BEFORE sampling (sampling doesn't affect the hash)
-      const { EnrichmentStore } = await import('../storage/EnrichmentStore');
-      const schemaHash = EnrichmentStore.hashRawTable(rawTable);
-
-      // Check if enrichment is still fresh
+      const schemaHash = hashRawTable(rawTable);
       const isFresh = !forceRefresh && this.store.isEnrichmentFresh(rawTable, stored);
 
       if (isFresh) {
@@ -169,17 +103,13 @@ export class SchemaEnricher {
         onProgress?.({
           tableName: rawTable.tableName,
           completed: i + 1,
-          total: rawTables.length,
+          total: filteredTables.length,
           wasEnriched: false,
         });
         continue;
       }
 
-      // ── Sample column values ─────────────────────────────────────────────
-
       const tableWithSamples = await this.addSamplesToTable(rawTable, sampleSize);
-
-      // ── Call the LLM ─────────────────────────────────────────────────────
 
       try {
         const enriched = await this.llm.enrichTable(tableWithSamples, schemaHash);
@@ -196,13 +126,13 @@ export class SchemaEnricher {
       onProgress?.({
         tableName: rawTable.tableName,
         completed: i + 1,
-        total: rawTables.length,
+        total: filteredTables.length,
         wasEnriched: !failedTables.includes(rawTable.tableName),
       });
     }
 
     return {
-      totalTables: rawTables.length,
+      totalTables: filteredTables.length,
       enriched: enrichedCount,
       skipped: skippedCount,
       failed: failedTables,
@@ -210,38 +140,10 @@ export class SchemaEnricher {
     };
   }
 
-  /**
-   * Retrieves all enriched table descriptions currently stored.
-   * This is what the query engine calls at runtime to get schema context.
-   *
-   * @returns Array of all stored EnrichedTable objects.
-   *
-   * @example
-   * const tables = await enricher.getEnrichedTables();
-   * console.log(`${tables.length} tables available for querying`);
-   */
   async getEnrichedTables(): Promise<EnrichedTable[]> {
     return this.store.loadAll();
   }
 
-  /**
-   * Finds the most relevant enriched tables for a given user query.
-   *
-   * Uses a simple keyword-based relevance scoring approach:
-   *  - Matches the query words against table business names, descriptions,
-   *    synonyms, and column synonyms.
-   *  - Returns up to `maxTables` tables, sorted by relevance score.
-   *
-   * In a production system, this could be replaced with vector embedding
-   * similarity search for even better results.
-   *
-   * @param userQuery  - The natural language query from the user.
-   * @param maxTables  - Maximum number of tables to return.
-   * @returns Array of the most relevant EnrichedTable objects.
-   *
-   * @example
-   * const relevant = await enricher.findRelevantTables('show top customers', 5);
-   */
   async findRelevantTables(
     userQuery: string,
     maxTables = 5
@@ -249,19 +151,14 @@ export class SchemaEnricher {
     const allTables = await this.store.loadAll();
 
     if (allTables.length <= maxTables) {
-      // If there are fewer tables than the limit, return all
       return allTables;
     }
 
-    // Normalise the query: lowercase, split into individual words,
-    // filter out very short words (a, an, the, is, etc.) 
-    //Remove stop words and very short words from the query to focus on meaningful keywords
     const queryWords = userQuery
       .toLowerCase()
       .split(/\W+/)
       .filter((w) => w.length > 2);
 
-    // Score each table by how many query words appear in its metadata
     const scored = allTables.map((table) => {
       const searchText = [
         table.tableName,
@@ -281,41 +178,78 @@ export class SchemaEnricher {
         .toLowerCase();
 
       const score = queryWords.reduce((total, word) => {
-        // Count occurrences of this word in the search text
-        const occurrences = (searchText.match(new RegExp(`\\b${word}\\b`, 'g')) ?? []).length;
+        const occurrences = (searchText.match(new RegExp(`\\b${escapeRegex(word)}\\b`, 'g')) ?? []).length;
         return total + occurrences;
       }, 0);
 
       return { table, score };
     });
 
-    // Sort by score descending, then alphabetically as a tiebreaker
     scored.sort((a, b) => b.score - a.score || a.table.tableName.localeCompare(b.table.tableName));
 
-    // Return just the table objects for the top N results
-    return scored.slice(0, maxTables).map((s) => s.table);
+    const topTables = scored.slice(0, maxTables).map((s) => s.table);
+
+    const selectedMap = new Map<string, EnrichedTable>();
+    for (const t of topTables) {
+      selectedMap.set(t.tableName.toLowerCase(), t);
+    }
+
+    const allTablesMap = new Map<string, EnrichedTable>();
+    for (const t of allTables) {
+      allTablesMap.set(t.tableName.toLowerCase(), t);
+    }
+
+    for (const t of topTables) {
+      if (selectedMap.size >= maxTables + 2) break;
+      if (t.foreignKeys) {
+        for (const fk of t.foreignKeys) {
+          const refTableLower = fk.referencedTable.toLowerCase();
+          if (!selectedMap.has(refTableLower) && allTablesMap.has(refTableLower)) {
+            selectedMap.set(refTableLower, allTablesMap.get(refTableLower)!);
+            if (selectedMap.size >= maxTables + 2) break;
+          }
+        }
+      }
+    }
+
+    return Array.from(selectedMap.values());
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // PRIVATE HELPERS
-  // ─────────────────────────────────────────────────────────────────────────
+  private filterSchema(rawTables: RawTable[]): RawTable[] {
+    const excludeTableGlobs = this.schemaConfig?.excludeTables ?? [];
+    const excludeColGlobs = this.schemaConfig?.excludeColumns ?? [];
 
-  /**
-   * Enriches a RawTable's columns with sample values from the actual data.
-   * Sample values give the LLM crucial context about what kind of data
-   * lives in each column (e.g. enum values, ID formats, date ranges).
-   *
-   * @param rawTable  - The table to add samples to.
-   * @param sampleSize - How many distinct values to fetch per column.
-   * @returns A new RawTable with `sampleValues` populated on each column.
-   */
+    return rawTables
+      .filter((table) => {
+        return !excludeTableGlobs.some((pattern) => matchesGlob(table.tableName, pattern));
+      })
+      .map((table) => {
+        const filteredCols = table.columns.filter((col) => {
+          if (DEFAULT_PII_PATTERN.test(col.columnName)) {
+            return false;
+          }
+          const qualifiedName = `${table.tableName}.${col.columnName}`;
+          return !excludeColGlobs.some(
+            (pattern) => matchesGlob(col.columnName, pattern) || matchesGlob(qualifiedName, pattern)
+          );
+        });
+        return {
+          ...table,
+          columns: filteredCols,
+        };
+      });
+  }
+
   private async addSamplesToTable(
     rawTable: RawTable,
     sampleSize: number
   ): Promise<RawTable> {
-    const columnsWithSamples = await Promise.all(
+    if (sampleSize === 0) {
+      return rawTable;
+    }
+
+    const columnsWithSamples: RawColumn[] = await Promise.all(
       rawTable.columns.map(async (col) => {
-        // Skip binary/blob columns — they can't be meaningfully sampled as text
         const skipTypes = ['blob', 'longblob', 'mediumblob', 'tinyblob', 'binary', 'varbinary'];
         if (skipTypes.includes(col.dataType.toLowerCase())) {
           return col;

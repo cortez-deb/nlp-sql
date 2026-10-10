@@ -1,3 +1,5 @@
 node_modules/
-/examples/.env
-dist
+dist/
+.env
+.env.*
+.nlsql/
