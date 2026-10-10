@@ -27,13 +27,27 @@ export interface ExecuteQueryResult {
   truncated: boolean;
 }
 
+/**
+ * A streaming query result. `rows` is an object-mode Readable that yields one
+ * row object per record. Always call `destroy()` when finished (success or not).
+ */
+export interface RowStream {
+  /** Column names, known before the first row. */
+  columns: string[];
+  rows: NodeJS.ReadableStream & AsyncIterable<Record<string, unknown>>;
+  /** Idempotent. Stops the query and discards the underlying connection. */
+  destroy(): Promise<void>;
+}
+
 export class MySQLAdapter {
   private readonly pool: Pool;
   private readonly databaseName: string;
+  private readonly isMariaDB: boolean;
 
-  private constructor(pool: Pool, databaseName: string) {
+  private constructor(pool: Pool, databaseName: string, isMariaDB = false) {
     this.pool = pool;
     this.databaseName = databaseName;
+    this.isMariaDB = isMariaDB;
   }
 
   static async create(config: MySQLConnectionConfig): Promise<MySQLAdapter> {
@@ -89,7 +103,7 @@ export class MySQLAdapter {
       });
     }
 
-    return new MySQLAdapter(pool, config.database);
+    return new MySQLAdapter(pool, config.database, isMariaDB);
   }
 
   async getSchema(tableNames?: string[]): Promise<RawTable[]> {
@@ -243,6 +257,81 @@ export class MySQLAdapter {
       rows: finalRows,
       truncated,
     };
+  }
+
+  /**
+   * Runs `sql` as a streaming query on a dedicated connection. No LIMIT is
+   * added; the caller enforces any row cap while reading.
+   *
+   * The connection is destroyed (never released back to the pool) by
+   * `destroy()`, because the session timeout variable was changed and a
+   * connection interrupted mid-stream must not be reused.
+   */
+  async openStream(sql: string, opts: { timeoutMs: number }): Promise<RowStream> {
+    const conn = await this.pool.getConnection();
+    let destroyed = false;
+    let rowsStream: (NodeJS.ReadableStream & AsyncIterable<Record<string, unknown>>) | undefined;
+
+    const destroy = async (): Promise<void> => {
+      if (destroyed) return;
+      destroyed = true;
+      try {
+        (rowsStream as unknown as { destroy?: () => void } | undefined)?.destroy?.();
+      } finally {
+        conn.destroy();
+      }
+    };
+
+    try {
+      if (this.isMariaDB) {
+        const secs = Math.max(1, Math.ceil(opts.timeoutMs / 1000));
+        await conn.query(`SET SESSION max_statement_time = ${secs}`);
+      } else {
+        await conn.query(`SET SESSION MAX_EXECUTION_TIME = ${Math.floor(opts.timeoutMs)}`);
+      }
+
+      // With mysql2/promise the callback-style connection is `conn.connection`.
+      const q = (conn as any).connection.query(sql);
+      const stream = q.stream({ highWaterMark: 100 });
+      // A query error destroys the stream with that error. Keep a listener so an
+      // error before the consumer attaches is not an uncaught exception; the
+      // consumer still sees the error through the stream/async iterator.
+      stream.on('error', () => undefined);
+      rowsStream = stream;
+
+      const columns = await new Promise<string[]>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Timed out waiting for the query to start returning rows'));
+        }, opts.timeoutMs + 2000);
+        const cleanup = () => {
+          clearTimeout(timer);
+          q.removeListener('fields', onFields);
+          q.removeListener('error', onError);
+          q.removeListener('end', onEnd);
+        };
+        const onFields = (fields: Array<{ name: string }>) => {
+          cleanup();
+          resolve(fields.map((f) => f.name));
+        };
+        const onError = (err: Error) => {
+          cleanup();
+          reject(err);
+        };
+        const onEnd = () => {
+          cleanup();
+          resolve([]);
+        };
+        q.on('fields', onFields);
+        q.on('error', onError);
+        q.on('end', onEnd);
+      });
+
+      return { columns, rows: stream, destroy };
+    } catch (err) {
+      await destroy();
+      throw err;
+    }
   }
 
   async rawQuery<T extends RowDataPacket[]>(

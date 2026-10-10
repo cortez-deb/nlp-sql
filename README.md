@@ -172,6 +172,42 @@ const result = await client.query('Show me pending orders', {
 
 ---
 
+## Exporting to CSV
+
+`CsvExportService` re-runs a query as a stream (not the 1000-row preview), writes
+it to `<EXPORT_ROOT_DIR>/<ownerId>/<fileName>.csv` plus a `.json` sidecar, and
+returns a download URL. A separate web app is expected to serve the files; see
+[docs/EXPORT_CONTRACT.md](docs/EXPORT_CONTRACT.md).
+
+```ts
+import { NLSQLClient, CsvExportService, loadExportConfigFromEnv, startCleanupTimer } from 'nlsql';
+
+const exportConfig = loadExportConfigFromEnv(); // validates EXPORT_* env vars, see .env.example
+const exporter = new CsvExportService(client, exportConfig);
+startCleanupTimer(exportConfig); // removes expired files; call once at startup
+
+const result = await client.query('top 5 customers by spend');
+if (result.error === null && result.sql) {
+  const out = await exporter.export({ ownerId: '254712345678', sql: result.sql, question: 'top 5 customers by spend' });
+  if (out.ok) console.log(out.url, out.rowCount, out.truncated);
+  else console.log(out.code); // EMPTY | REJECTED | TIMEOUT | DB_ERROR | IO_ERROR | BAD_OWNER
+}
+```
+
+- The SQL is **re-validated** on export, so it is safe to keep it in chat state.
+- Exports are capped by rows (`EXPORT_MAX_ROWS`, default 100,000), size
+  (`EXPORT_MAX_MB`, default 50) and time (`EXPORT_TIMEOUT_MS`, default 60s);
+  `truncated`/`truncatedReason` tell you when a cap was hit. The size cap is
+  approximate: the file can exceed it by a few KB.
+- `ownerId` must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`. Never pass a raw chat id.
+- Cells that spreadsheets would execute as formulas (`=`, `+`, `-`, `@`) are
+  prefixed with `'`, so `=1+1` shows as text.
+- Known limitation: if a query returns two columns with the same name (e.g.
+  `SELECT a.id, b.id`), rows are objects, so only one value per name survives.
+  Give columns distinct aliases.
+- `detectExportIntent(text)` classifies chat messages such as `csv` or
+  `export all gold customers as csv`.
+
 ## Security
 
 - **AST Validation**: Powered by `node-sql-parser`. Strictly enforces single `SELECT` statements (CTEs allowed). Blocks data mutation (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.), system catalog queries (`information_schema`, `mysql`, `sys`), locking clauses (`FOR UPDATE`), INTO clauses, user/system variables, comment injection (`/*!`), and dangerous functions (`SLEEP`, `BENCHMARK`, `LOAD_FILE`).

@@ -5,6 +5,8 @@
  */
 
 import { MySQLAdapter } from '../db/MySQLAdapter';
+import type { RowStream } from '../db/MySQLAdapter';
+import { SqlRejectedError } from './errors';
 import { GeminiLLM } from '../llm/GeminiLLM';
 import { BaseLLM } from '../llm/BaseLLM';
 import type { IEnrichmentStore } from '../storage/IEnrichmentStore';
@@ -32,6 +34,8 @@ export interface NLSQLClientConfig {
     | { type: 'mysql'; admin?: MySQLConnectionConfig };
   security?: { queryTimeoutMs?: number; maxRows?: number };
   schema?: { excludeTables?: string[]; excludeColumns?: string[] };
+  /** Defaults used by openRowStream() (CSV export). */
+  export?: { timeoutMs?: number };
 }
 
 const RETRYABLE_CODES = new Set([
@@ -341,6 +345,29 @@ export class NLSQLClient {
   async getEnrichedSchema(): Promise<EnrichedTable[]> {
     this.assertInitialised('getEnrichedSchema');
     return this.enricher.getEnrichedTables();
+  }
+
+  /**
+   * Re-validates `sql` and opens it as a row stream (no LIMIT is appended; the
+   * caller enforces any cap while reading). Throws SqlRejectedError if the SQL
+   * fails validation, before any connection is taken.
+   *
+   * Always re-validates: never trust SQL that was stored in chat state.
+   */
+  async openRowStream(sql: string, opts?: { timeoutMs?: number }): Promise<RowStream> {
+    this.assertInitialised('openRowStream');
+
+    const allowedTables = (await this.enricher.getEnrichedTables()).map((t) => t.tableName);
+    const validation = this.validator.validate(sql, {
+      allowedTables,
+      allowedDatabase: this.config.db.database,
+    });
+    if (!validation.isValid) {
+      throw new SqlRejectedError(validation.reason ?? 'SQL rejected', validation.kind);
+    }
+
+    const timeoutMs = opts?.timeoutMs ?? this.config.export?.timeoutMs ?? 60_000;
+    return this.adapter.openStream(sql, { timeoutMs });
   }
 
   validateSQL(sql: string) {
