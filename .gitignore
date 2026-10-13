@@ -6,3 +6,5 @@ dist/
 .nlsql/
 .capture/
 bot/.capture/
+bot/.env.example
+bot/.env.example

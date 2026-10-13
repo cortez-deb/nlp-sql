@@ -1,4 +1,25 @@
+import fs from 'fs';
+import path from 'path';
 import { z } from 'zod';
+
+// Automatically load .env if available in process or parent directory
+if (typeof process.loadEnvFile === 'function') {
+  const envCandidates = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(process.cwd(), 'bot/.env'),
+    path.resolve(__dirname, '../.env'),
+    path.resolve(__dirname, '../../.env'),
+  ];
+  for (const envPath of envCandidates) {
+    if (fs.existsSync(envPath)) {
+      try {
+        process.loadEnvFile(envPath);
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
 
 // Ensure TZ is set before anything else
 if (!process.env.TZ) {
