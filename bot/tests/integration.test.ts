@@ -134,6 +134,8 @@ const isIntegrationEnabled =
         CAPTURE_MODE: false,
         LOG_LEVEL: 'info',
         TYPING_INDICATOR: false,
+      INTENT_ROUTING_ENABLED: true,
+      MEMORY_ENABLED: false,
       };
 
       const gateway = new OpenWAGatewayAdapter(botConfig);
@@ -161,6 +163,8 @@ const isIntegrationEnabled =
         rateLimiter,
         semaphore,
         exportService,
+        memoryStore: new (require('../src/memory').NoopMemoryStore)(),
+        memoryService: { extractAndStore: jest.fn(), buildMemoryContextText: jest.fn().mockResolvedValue('') },
       });
 
       appServer = buildServer({

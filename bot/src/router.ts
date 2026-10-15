@@ -11,6 +11,9 @@ import { AccessController, maskSenderId } from './access';
 import { ChatState, ChatStateStore, RateLimiter, Semaphore } from './state';
 import { formatAnswer, friendlyError } from './format';
 import { handleCommand } from './commands';
+import { IntentClassifier } from './intent';
+import { MemoryStore } from './memory';
+import { MemoryService } from './memoryService';
 
 export interface RouterDependencies {
   config: BotConfig;
@@ -23,6 +26,9 @@ export interface RouterDependencies {
   exportService?: CsvExportService | null;
   exportConfig?: ExportConfig | null;
   fewShotExamples?: FewShotExample[];
+  intentClassifier?: IntentClassifier;
+  memoryStore: MemoryStore;
+  memoryService: MemoryService;
   logger?: any;
   now?: () => number;
 }
@@ -44,6 +50,9 @@ export class MessageRouter {
   private exportService?: CsvExportService | null;
   private exportConfig?: ExportConfig | null;
   private fewShotExamples: FewShotExample[];
+  private intentClassifier?: IntentClassifier;
+  private memoryStore: MemoryStore;
+  private memoryService: MemoryService;
   private logger?: any;
   private getNow: () => number;
 
@@ -58,6 +67,9 @@ export class MessageRouter {
     this.exportService = deps.exportService;
     this.exportConfig = deps.exportConfig;
     this.fewShotExamples = deps.fewShotExamples ?? [];
+    this.intentClassifier = deps.intentClassifier;
+    this.memoryStore = deps.memoryStore;
+    this.memoryService = deps.memoryService;
     this.logger = deps.logger;
     this.getNow = deps.now ?? (() => Date.now());
   }
@@ -102,6 +114,13 @@ export class MessageRouter {
 
     const ownerId = decision.ownerId;
     const state = this.stateStore.get(msg.chatId);
+    
+    // Ensure the identity is recorded in memory if enabled
+    if (this.config.MEMORY_ENABLED) {
+        await this.memoryStore.ensureIdentity(ownerId, msg.chatId).catch(err => {
+            this.logger?.warn({ err, ownerId, chatId: msg.chatId }, 'Failed to record identity mapping');
+        });
+    }
 
     // Per-chat sequential queuing
     const prevQueue = state.queue;
@@ -134,16 +153,83 @@ export class MessageRouter {
           state,
           client: this.client,
           gateway: this.gateway,
+          memoryStore: this.memoryStore,
           onExportLast: () =>
             this.handleExport({ kind: 'last' }, msg.chatId, ownerId, state),
         });
         return;
       }
 
-      const intent = detectExportIntent(text);
-      if (intent) {
-        await this.handleExport(intent, msg.chatId, ownerId, state);
+      const exportIntent = detectExportIntent(text);
+      if (exportIntent) {
+        await this.handleExport(exportIntent, msg.chatId, ownerId, state);
         return;
+      }
+
+      if (this.config.INTENT_ROUTING_ENABLED && this.intentClassifier) {
+        try {
+          const intent = await this.intentClassifier.classify(text);
+          if (intent === 'chitchat') {
+            const memoryCtx = await this.memoryService.buildMemoryContextText({ ownerId });
+            
+            // Re-prompt chitchat to include memory
+            const reply = await this.intentClassifier.generateChitchatReply(
+              text + (memoryCtx ? `\n\nContext about me: ${memoryCtx}` : '')
+            );
+            await this.gateway.sendText(msg.chatId, reply);
+            
+            // Fire-and-forget extraction
+            if (this.config.MEMORY_ENABLED) {
+               this.memoryService.extractAndStore({ ownerId }, text).catch(e => {
+                 this.logger?.warn({ err: e }, 'Fire-and-forget extraction failed');
+               });
+            }
+            return;
+            
+          } else if (intent === 'memory_write') {
+            await this.gateway.sendText(msg.chatId, 'I have noted that down.');
+            
+            if (this.config.MEMORY_ENABLED) {
+               this.memoryService.extractAndStore({ ownerId }, text).catch(e => {
+                 this.logger?.warn({ err: e }, 'Fire-and-forget extraction failed');
+               });
+            }
+            return;
+            
+          } else if (intent === 'memory_read') {
+             // Rule 6: Direct key lookup first
+             const directMatch = text.match(/what(?:'s| is) my (name|language|role|focus)/i);
+             if (directMatch && this.config.MEMORY_ENABLED) {
+                 let key = directMatch[1].toLowerCase();
+                 if (key === 'name') key = 'preferred_name';
+                 if (key === 'focus') key = 'current_focus';
+                 
+                 const val = await this.memoryStore.getFact({ ownerId }, key);
+                 if (val) {
+                     await this.gateway.sendText(msg.chatId, `Your ${key.replace('_', ' ')} is ${val}.`);
+                     return;
+                 }
+             }
+
+             // Fallback if not directly matched or not found
+             const memoryCtx = await this.memoryService.buildMemoryContextText({ ownerId });
+             if (memoryCtx) {
+                const reply = await this.intentClassifier.generateChitchatReply(
+                  `The user asked what you remember about them: "${text}". Here is what you know:\n${memoryCtx}`
+                );
+                await this.gateway.sendText(msg.chatId, reply);
+             } else {
+                await this.gateway.sendText(msg.chatId, 'I don\'t remember anything specific yet.');
+             }
+             return;
+          }
+        } catch (err: any) {
+          this.logger?.warn(
+            { error: err instanceof Error ? err.message : String(err) },
+            'Intent classifier failed, falling back to database_question'
+          );
+          // Fall through to database_question handling
+        }
       }
 
       await this.handleQuestion(text, msg, ownerId, state);

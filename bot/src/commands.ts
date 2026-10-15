@@ -1,6 +1,7 @@
 import type { NLSQLClient } from 'nlsql';
 import type { ChatState } from './state';
 import type { GatewayAdapter } from './gateway';
+import type { MemoryStore } from './memory';
 
 export interface CommandContext {
   chatId: string;
@@ -9,13 +10,14 @@ export interface CommandContext {
   state: ChatState;
   client: NLSQLClient;
   gateway: GatewayAdapter;
+  memoryStore?: MemoryStore;
   onExportLast: () => Promise<void>;
 }
 
 let isRefreshing = false;
 
 export async function handleCommand(ctx: CommandContext): Promise<void> {
-  const { chatId, state, commandText, client, gateway, onExportLast } = ctx;
+  const { chatId, ownerId, state, commandText, client, gateway, memoryStore, onExportLast } = ctx;
   const trimmed = commandText.trim();
   const parts = trimmed.split(/\s+/);
   const cmd = parts[0].toLowerCase();
@@ -37,6 +39,8 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
         '• */tables* - List available database tables',
         '• */sql* - Show SQL query for the last answer',
         '• */csv* - Export last query results as CSV',
+        '• */memory* - Show stored facts and preferences',
+        '• */forget* - Delete all stored facts and preferences',
         '• */reset* - Clear conversation history',
         '• */refresh* [all] - Refresh schema enrichment',
       ].join('\n');
@@ -89,6 +93,46 @@ export async function handleCommand(ctx: CommandContext): Promise<void> {
 
     case '/csv': {
       await onExportLast();
+      return;
+    }
+
+    case '/memory': {
+      if (!memoryStore) {
+        await gateway.sendText(chatId, 'Memory is disabled.');
+        return;
+      }
+      try {
+        const memCtx = { ownerId };
+        const facts = await memoryStore.listFacts(memCtx);
+        if (facts.length === 0) {
+          await gateway.sendText(chatId, 'I have no facts stored about you.');
+          return;
+        }
+        const text = '*Stored Facts*\n' + facts.map(f => `• ${f.key}: ${JSON.stringify(f.value)}`).join('\n');
+        await gateway.sendText(chatId, text);
+      } catch (err: any) {
+        await gateway.sendText(chatId, 'Failed to read memory.');
+      }
+      return;
+    }
+
+    case '/forget': {
+      if (!memoryStore) {
+        await gateway.sendText(chatId, 'Memory is disabled.');
+        return;
+      }
+      
+      if (arg !== 'confirm') {
+        await gateway.sendText(chatId, 'Are you sure you want me to forget everything? Reply */forget confirm* to proceed.');
+        return;
+      }
+      
+      try {
+        await memoryStore.deleteAllForOwner({ ownerId });
+        await gateway.sendText(chatId, 'I have forgotten all stored facts, preferences and history.');
+      } catch (err: any) {
+        await gateway.sendText(chatId, 'Failed to clear memory.');
+      }
       return;
     }
 

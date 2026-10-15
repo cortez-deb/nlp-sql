@@ -39,6 +39,8 @@ describe('Gateway Adapters', () => {
     CAPTURE_MODE: false,
     LOG_LEVEL: 'info',
     TYPING_INDICATOR: false,
+      INTENT_ROUTING_ENABLED: true,
+      MEMORY_ENABLED: false,
   };
 
   const waAutomateConfig: BotConfig = {

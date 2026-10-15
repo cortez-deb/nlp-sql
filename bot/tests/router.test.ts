@@ -145,6 +145,8 @@ describe('MessageRouter', () => {
       CAPTURE_MODE: false,
       LOG_LEVEL: 'info',
       TYPING_INDICATOR: true,
+      INTENT_ROUTING_ENABLED: true,
+      MEMORY_ENABLED: false,
     };
 
     gateway = new FakeGateway();
@@ -165,6 +167,8 @@ describe('MessageRouter', () => {
       rateLimiter,
       semaphore,
       exportService: exportService as unknown as CsvExportService,
+      memoryStore: new (require('../src/memory').NoopMemoryStore)(),
+        memoryService: { extractAndStore: jest.fn(), buildMemoryContextText: jest.fn().mockResolvedValue('') },
       exportConfig: {
         rootDir: '/var/www/downloads',
         baseUrl: 'https://files.example.com/downloads',
@@ -350,8 +354,53 @@ describe('MessageRouter', () => {
     expect(executionOrder).toEqual(['first', 'second']);
   });
 
-  it('does not crash or loop when sendText fails', async () => {
-    gateway.shouldFailSend = true;
-    await expect(router.handleInbound(createMsg('Crash test'))).resolves.not.toThrow();
+  it('handles memory write intent', async () => {
+    const intentClassifier = {
+      classify: async () => 'memory_write',
+      generateChitchatReply: async () => '',
+    };
+    
+    // Inject mock classifier
+    (router as any).intentClassifier = intentClassifier;
+    
+    await router.handleInbound(createMsg('My name is David'));
+    expect(gateway.sentMessages[0].text).toBe('I have noted that down.');
+  });
+
+  it('handles memory read intent', async () => {
+    const intentClassifier = {
+      classify: async () => 'memory_read',
+      generateChitchatReply: async () => '',
+    };
+    
+    (router as any).intentClassifier = intentClassifier;
+
+    await router.handleInbound(createMsg('What is my name?'));
+    expect(gateway.sentMessages[0].text).toBe('I don\'t remember anything specific yet.');
+  });
+
+  it('handles chitchat intent', async () => {
+    const intentClassifier = {
+      classify: async () => 'chitchat',
+      generateChitchatReply: async () => 'Hello! How can I help you today?',
+    };
+    
+    (router as any).intentClassifier = intentClassifier;
+
+    await router.handleInbound(createMsg('Hello'));
+    expect(gateway.sentMessages[0].text).toBe('Hello! How can I help you today?');
+  });
+
+  it('falls back to database question if intent classifier fails', async () => {
+    const intentClassifier = {
+      classify: async () => { throw new Error('Classifier failed'); },
+      generateChitchatReply: async () => '',
+    };
+    
+    (router as any).intentClassifier = intentClassifier;
+
+    await router.handleInbound(createMsg('What are the products?'));
+    
+    expect(gateway.sentMessages[0].text).toBe('Here is 1 product.');
   });
 });

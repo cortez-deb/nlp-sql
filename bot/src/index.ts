@@ -17,6 +17,9 @@ import { AccessController } from './access';
 import { ChatStateStore, RateLimiter, Semaphore } from './state';
 import { MessageRouter } from './router';
 import { buildServer } from './server';
+import { MemoryStore, PostgresMemoryStore, NoopMemoryStore } from './memory';
+import { createMemoryService, MemoryService } from './memoryService';
+import { IntentClassifier } from './intent';
 
 async function bootstrap() {
   // 1. Config
@@ -146,6 +149,34 @@ async function bootstrap() {
   );
   const semaphore = new Semaphore(2);
 
+  const llmProvider = {
+    generateText: async (prompt: string) => {
+      // Small wrapper around the core LLM for intent classification
+      const res = await (client as any).llm?.generate(prompt);
+      return res || '';
+    }
+  };
+  const intentClassifier = new IntentClassifier(llmProvider);
+
+  const memoryStore: MemoryStore = config.MEMORY_ENABLED && config.MEMORY_DATABASE_URL
+    ? new PostgresMemoryStore(config.MEMORY_DATABASE_URL)
+    : new NoopMemoryStore();
+  
+  const memoryService: MemoryService = createMemoryService(memoryStore, llmProvider);
+  
+  if (config.MEMORY_ENABLED) {
+    try {
+      await memoryStore.initialise();
+      logger.info('Memory store initialised');
+    } catch (err: any) {
+      logger.fatal(
+        { error: err instanceof Error ? err.message : String(err) },
+        'Failed to initialise memory store'
+      );
+      process.exit(1);
+    }
+  }
+
   const router = new MessageRouter({
     config,
     client,
@@ -157,6 +188,9 @@ async function bootstrap() {
     exportService,
     exportConfig,
     fewShotExamples,
+    intentClassifier,
+    memoryStore,
+    memoryService,
     logger,
   });
 
@@ -209,6 +243,7 @@ async function bootstrap() {
       if (cleanupTimer) cleanupTimer.stop();
       // Wait up to 10s for active tasks
       await new Promise((r) => setTimeout(r, 1000));
+      await memoryStore.close();
       await client.close();
       logger.info('Shutdown complete');
     } catch (err: any) {

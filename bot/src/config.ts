@@ -101,8 +101,18 @@ const rawConfigSchema = z
     DAILY_QUERY_LIMIT: numberFromString(200),
     CAPTURE_MODE: booleanFromString(false),
     LOG_LEVEL: z.string().default('info'),
+    INTENT_ROUTING_ENABLED: booleanFromString(true),
+    MEMORY_ENABLED: booleanFromString(false),
+    MEMORY_DATABASE_URL: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.MEMORY_ENABLED && !data.MEMORY_DATABASE_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MEMORY_DATABASE_URL'],
+        message: 'MEMORY_DATABASE_URL is required when MEMORY_ENABLED is true',
+      });
+    }
     if (data.OPENWA_FLAVOR === 'openwa-gateway') {
       if (!data.WEBHOOK_HMAC_SECRET || data.WEBHOOK_HMAC_SECRET.length < 16) {
         ctx.addIssue({

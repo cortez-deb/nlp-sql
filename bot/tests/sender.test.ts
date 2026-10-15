@@ -61,6 +61,8 @@ describe('Gateway Senders', () => {
     CAPTURE_MODE: false,
     LOG_LEVEL: 'info',
     TYPING_INDICATOR: true,
+      INTENT_ROUTING_ENABLED: true,
+      MEMORY_ENABLED: false,
   };
 
   describe('openwa-gateway sender', () => {
